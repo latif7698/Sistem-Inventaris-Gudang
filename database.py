@@ -10,4 +10,4 @@ engine = create_engine(SQLALCHEMY_DATABASE_URL)
 #sesi kerja
 SessionLocal = sessionmaker(autocommit=False, autoflush = False, bind=engine)
 
-base = declarative_base()
+Base = declarative_base()
