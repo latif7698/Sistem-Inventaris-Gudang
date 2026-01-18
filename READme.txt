@@ -10,8 +10,7 @@ from security import get_password_hash
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-
-# --DEPENDENCY--
+## --DEPENDENCY--
 def get_db():
     db = SessionLocal()
     try:
@@ -19,26 +18,22 @@ def get_db():
     finally:
         db.close()
 
-#--- View (Schema) ---
+#--- View (Schema) dengan validasi ---
 class InventorySchema(BaseModel):
-    # ID biasanya otomatis (autoincrement), tapi kalau kamu mau input manual, oke.
-    id : int = Field(..., ge=1) 
+    id : int = Field(..., ge= 3, le=15)
     name : str = Field(..., min_length=3, max_length=100)
     price : int = Field(..., ge=0)
     stock : int = Field(..., ge=0)
     description : Optional[str] = Field(None, max_length=1000)
 
-    class Config:
-        from_attributes = True # PENTING: Biar bisa baca data dari ORM Database
-
 class UserSchema(BaseModel):
     username: str
-    password: str 
+    password: str # user input password asli di sini
 
     class Config:
         from_attributes = True
 
-# CONTROLER (Endpoint)
+#  CONTROLER (Endpoint)
 
 @app.get("/")
 def read_root():
@@ -46,13 +41,13 @@ def read_root():
 
 @app.post("/inventory", status_code=201)
 def create_inventory(inventory : InventorySchema, db : Session = Depends(get_db)):
-    # Pastikan nama modelnya benar (InventoryDB atau InventoryBD? Cek models.py)
-    # Disini saya asumsikan InventoryDB yang benar.
-    cek_duplikasi = db.query(models.InventoryDB).filter(models.InventoryDB.id == inventory.id).first()
+    # logika duplikasi 
+    cek_duplikasi = db.query(models.InventoryDB).filter(models.InventoryBD.id == inventory.id).first()
     if cek_duplikasi:
         raise HTTPException(status_code=400, detail="ID already registered")
     
-    new_inventory = models.InventoryDB(
+    #logika controler: simpan ke model
+    new_inventory = models.InventoryBD(
         id = inventory.id,
         name = inventory.name,
         price = inventory.price,
@@ -64,21 +59,22 @@ def create_inventory(inventory : InventorySchema, db : Session = Depends(get_db)
     db.refresh(new_inventory)
     return new_inventory
 
-# -- END POINT BARU: REGISTER (DAY 8) --
+# -- END POINT BARU: REGISTER --
 @app.post("/register", status_code=201)
 def register_user(user: UserSchema, db: Session = Depends(get_db)):
-    # 1. Cek User (Perbaikan: .first() bukan .frist())
-    cek_user = db.query(models.UserDB).filter(models.UserDB.username==user.username).first()
+    #1. Cek apakah username sudah dipakai orang lain?
+    cek_user = db.query(models.UserDB).filter(models.UserDB.username==user.username).frist()
     if cek_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
+        raise HTTPException(status_code=400, detail="User already registered")
     
-    # 2. HASH PASSWORD
+    # 2. HASH PASSWORD (Momen Penting)
+    # Kita panggil tukang blender dari security.py
     hashed_pwd = get_password_hash(user.password)
 
     # 3. Masukan ke Database
     new_user = models.UserDB(
         username = user.username,
-        hashed_password = hashed_pwd 
+        hashed_password = hashed_pwd # simpan buburnya, bukan password asli!
     )
 
     db.add(new_user)
@@ -89,40 +85,36 @@ def register_user(user: UserSchema, db: Session = Depends(get_db)):
 
 @app.get("/inventory", response_model=List[InventorySchema])
 def get_inventory(db: Session = Depends(get_db)):
-    return db.query(models.InventoryDB).all()
+    return db.query(models.InventoryBD).all()
 
-# ---- UPDATE ----
-# Perbaikan: Tambah "/" sebelum {id}
-@app.put("/inventory/{id}", response_model=InventorySchema)
+# ----UPDATE(PUT): Edit data mahasiswa ----
+@app.put("/inventory{id}", response_model=InventorySchema)
 def update_inventory(id:int, inventory_update: InventorySchema, db: Session= Depends(get_db)):
-    # Perbaikan: Variabel jadi db_item, dan pakai .first()
-    db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
+    db_customer = db.query(models.InventoryBD).filter(models.InventoryBD.id == id).frist()
 
-    if db_item is None:
-        raise HTTPException(status_code=404, detail="Item not Found")
+    if db_customer is None:
+        raise HTTPException(status_code=404, detail="Customer is not Found")
     
-    db_item.name = inventory_update.name
-    db_item.price = inventory_update.price
-    db_item.stock = inventory_update.stock
-    db_item.description = inventory_update.description
+    # db_customer.id = inventory_update.id
+    db_customer.name = inventory_update.name
+    db_customer.price = inventory_update.price
+    db_customer.stock = inventory_update. stock
+    db_customer.description = inventory_update.description
 
     db.commit()
-    db.refresh(db_item)
+    db.refresh(db_customer)
 
-    return db_item
+    return db_customer
 
-# --- DELETE ---
-# Perbaikan: Tambah "/" sebelum {id}
-@app.delete("/inventory/{id}")
-def delete_item(id: int, db: Session=Depends(get_db)):
-        db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
+# ---delete : hapus data customer ---
+@app.delete("/inventory{id}")
+def delete_customer(id: int, db: Session=Depends(get_db)):
+        db_customer = db.query(models.InventoryBD).filter(models.InventoryBD.id == id).frist()
 
-        if db_item is None:
-            raise HTTPException(status_code=404, detail="Item Not Found")
+        if db_customer is None:
+            raise HTTPException(status_code=404, detail="ID Customer Not Found")
         
-        db.delete(db_item)
-        db.commit() 
+        db.delete(db_customer)
+        db.commit() # commit biar permanen
 
-        return {"message": f"Item with id {id} successfully deleted"}
-
-
+        return {"message": f"Customer with {id} successfully deleted"}
