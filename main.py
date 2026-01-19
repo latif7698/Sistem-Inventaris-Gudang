@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 import models
 from database import SessionLocal, engine
 from security import get_password_hash
+from security import get_password_hash, verif_password, create_acces_token
+from datetime import timedelta
 
 # setup DB
 models.Base.metadata.create_all(bind=engine)
@@ -34,6 +36,10 @@ class InventorySchema(BaseModel):
 class UserSchema(BaseModel):
     username: str
     password: str 
+
+class LoginSchema(BaseModel):
+    username: str
+    password: str
 
     class Config:
         from_attributes = True
@@ -86,6 +92,27 @@ def register_user(user: UserSchema, db: Session = Depends(get_db)):
     db.refresh(new_user)
 
     return {"message": "User created succesfully", "username": new_user.username}
+
+# ---- ENDPOINT BARU: LOGIN (DAY 9) ----
+@app.post("/login")
+def login(request: LoginSchema, db: Session = Depends(get_db)):
+    #1. Cek, apakah username ada di database?
+    user = db.query(models.UserDB).filter(models.UserDB.username == request.username).first()
+
+    #user gak ketemu atau user salah
+    if not user or not verif_password(request.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    
+    #2. Kalau lolos, bikin token
+    acces_token_expires = timedelta(minutes=30)
+    acces_token = create_acces_token(
+        data = {"sub": user.username}, #'sub' ada;ah standar jwt untuk Subjek (siapa pemilik token)
+        expires_delta=acces_token_expires
+    )
+
+    #3. Kasih token ke user
+    return {"acces_tokem": acces_token, "token_type": "bearer"}
+
 
 @app.get("/inventory", response_model=List[InventorySchema])
 def get_inventory(db: Session = Depends(get_db)):
