@@ -111,7 +111,7 @@ def login(request: LoginSchema, db: Session = Depends(get_db)):
     )
 
     #3. Kasih token ke user
-    return {"acces_tokem": acces_token, "token_type": "bearer"}
+    return {"access_token": acces_token, "token_type": "bearer"}
 
 
 @app.get("/inventory", response_model=List[InventorySchema])
