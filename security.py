@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import jwt
 from passlib.context import CryptContext
+from fastapi import HTTPException, status
+from jose import JWTError, jwt #pastikan import JWTError
 
 
 SECRET_KEY = "rahasia_super_negara_api_backend_bootcamp"
@@ -38,3 +40,27 @@ def create_acces_token(data: dict, expires_delta: Optional[timedelta]=None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
     return encoded_jwt
+
+
+from fastapi import HTTPException, status
+from jose import JWTError, jwt #pastikan import JWTError
+
+# ====== DAY 10 =======
+# --- FUNGSI BARU: CEK TOKEN (DECODE) ---
+
+def verify_token(token: str):
+    try:
+        #coba buka segel tokeenya
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+        #ambil data username dari dalam token
+        username: str = payload.get("sub")
+
+        if username is None:
+            #kalau tokennya kebuka tapi sisina kosong
+            return None
+        
+        return username
+    except JWTError:
+        # kalai tokennya palsi, expired, atau rusak
+        return None

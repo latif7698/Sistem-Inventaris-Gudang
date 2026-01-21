@@ -1,17 +1,20 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends,status #tambahakan 'status' di import fastapi
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from sqlalchemy.orm import Session
-import models
 from database import SessionLocal, engine
-from security import get_password_hash
-from security import get_password_hash, verif_password, create_acces_token
+from security import get_password_hash, verif_password, create_acces_token, verify_token # import verify_token yang baru dibuat
+from fastapi.security import OAuth2PasswordBearer  # tambahkan OAuth2PasswordBearer
 from datetime import timedelta
+import models
 
 # setup DB
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
+# ini memberi tahu swagger: "Eh, kalau mau login, kirim data ke url/login ya"
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 # --DEPENDENCY--
 def get_db():
@@ -20,6 +23,25 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    #1. Panggil security.py untuk cek token valid/tidak
+    username = verify_token(token)
+
+    #2. kalau token tidak valid
+    if username is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail= "Cloud not Validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    #3. Kalau valid, cek apakah usernya masih ada di database?
+    user = db.query(models.UserDB).filter(models.UserDB.username == username).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user # Lolos! Silahkan masuk.
+    
 
 #--- View (Schema) ---
 class InventorySchema(BaseModel):
