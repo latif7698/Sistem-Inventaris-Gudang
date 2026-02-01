@@ -4,7 +4,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine
 from security import get_password_hash, verif_password, create_acces_token, verify_token # import verify_token yang baru dibuat
-from fastapi.security import OAuth2PasswordBearer  # tambahkan OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm  # tambahkan OAuth2PasswordBearer
 from datetime import timedelta
 import models
 
@@ -72,8 +72,15 @@ class LoginSchema(BaseModel):
 def read_root():
     return {"message": "Inventory Telah Diaktivasi"}
 
+
+# ======== CREATE (POST) ==========
+
 @app.post("/inventory", status_code=201)
-def create_inventory(inventory : InventorySchema, db : Session = Depends(get_db)):
+def create_inventory(inventory : InventorySchema, 
+                     db : Session = Depends(get_db),
+                     # Tambahkan: current_user: models.UserDB = Depends(get_current_user)
+                     current_user : models.UserDB = Depends(get_current_user) # <-- INI GEMBOKNYA 
+                     ):
     # Pastikan nama modelnya benar (InventoryDB atau InventoryBD? Cek models.py)
     # Disini saya asumsikan InventoryDB yang benar.
     cek_duplikasi = db.query(models.InventoryDB).filter(models.InventoryDB.id == inventory.id).first()
@@ -115,20 +122,25 @@ def register_user(user: UserSchema, db: Session = Depends(get_db)):
 
     return {"message": "User created succesfully", "username": new_user.username}
 
+
 # ---- ENDPOINT BARU: LOGIN (DAY 9) ----
+# ---- UPDATE ENDPOINT LOGIN ----
+
 @app.post("/login")
-def login(request: LoginSchema, db: Session = Depends(get_db)):
+def login(form_data : OAuth2PasswordRequestForm = Depends(),
+          db: Session = Depends(get_db)
+          ):
     #1. Cek, apakah username ada di database?
-    user = db.query(models.UserDB).filter(models.UserDB.username == request.username).first()
+    user = db.query(models.UserDB).filter(models.UserDB.username == form_data.username).first()
 
     #user gak ketemu atau user salah
-    if not user or not verif_password(request.password, user.hashed_password):
+    if not user or not verif_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
     
     #2. Kalau lolos, bikin token
     acces_token_expires = timedelta(minutes=30)
     acces_token = create_acces_token(
-        data = {"sub": user.username}, #'sub' ada;ah standar jwt untuk Subjek (siapa pemilik token)
+        data = {"sub": user.username}, #'sub' adalah standar jwt untuk Subjek (siapa pemilik token)
         expires_delta=acces_token_expires
     )
 
@@ -136,14 +148,30 @@ def login(request: LoginSchema, db: Session = Depends(get_db)):
     return {"access_token": acces_token, "token_type": "bearer"}
 
 
+
+# ============ READ (GET) ============
+
+
 @app.get("/inventory", response_model=List[InventorySchema])
-def get_inventory(db: Session = Depends(get_db)):
+def get_inventory(db: Session = Depends(get_db),
+                  # ditambah current_user: models.UserDB = Depends(get_current_user)
+                  curent_user : models.UserDB = Depends(get_current_user), # <-- INI GEMBOKNYA
+                  ):
     return db.query(models.InventoryDB).all()
 
-# ---- UPDATE ----
+
+
+# ============= UPDATE =================
+
+
+
 # Perbaikan: Tambah "/" sebelum {id}
 @app.put("/inventory/{id}", response_model=InventorySchema)
-def update_inventory(id:int, inventory_update: InventorySchema, db: Session= Depends(get_db)):
+def update_inventory(id:int, 
+                      inventory_update: InventorySchema,
+                      db: Session= Depends(get_db),
+                      current_user: models.UserDB = Depends(get_current_user)
+                      ):
     # Perbaikan: Variabel jadi db_item, dan pakai .first()
     db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
 
@@ -160,10 +188,17 @@ def update_inventory(id:int, inventory_update: InventorySchema, db: Session= Dep
 
     return db_item
 
-# --- DELETE ---
+
+
+# =============== DELETE ==================
+
+
 # Perbaikan: Tambah "/" sebelum {id}
 @app.delete("/inventory/{id}")
-def delete_item(id: int, db: Session=Depends(get_db)):
+def delete_item(id: int, 
+                db: Session=Depends(get_db),
+                current_user: models.UserDB = Depends(get_current_user)
+                ):
         db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
 
         if db_item is None:
