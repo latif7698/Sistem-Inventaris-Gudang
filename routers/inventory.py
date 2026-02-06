@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 import models 
 import database 
@@ -28,8 +28,27 @@ router = APIRouter(
 def get_inventory(db: Session = Depends(get_db),
                   # ditambah current_user: models.UserDB = Depends(get_current_user)
                   curent_user : models.UserDB = Depends(security.get_current_user), # <-- INI GEMBOKNYA
+                  # --- QUERY PARAMETERS (Input Tambahan di URL) ---
+                  search: Optional[str] = None, # boleh kosong. Kalau di isi jadi filter nama.
+                  skip: int = 0, # Lewati berapa data awal? (Offset)
+                  limit: int = 10 # Ambil berapa data? (Default 10 biar ringan)
                   ):
-    return db.query(models.InventoryDB).all()
+    
+    # 1. Mulai Query dasar (Belum dieksekusi)
+    query = db.query(models.InventoryDB)
+
+    # 2. Logika Search: Kalau user kirim kata kunci
+    if search:
+        # Filter nama yang MENGANDUNG kata kunci (Case Insensitive ilike/contains)
+        # Note: Di SQLite/Postgres biasa .contains itu Case Sensitive. 
+        # Kalau mau canggih pakai .ilike(f"%{search}%") tapi .contains cukup buat latihan.
+        query = query.filter(models.InventoryDB.name.contains(search))
+    
+    # 3. Logika Pagination: Potong Datanya
+    # .offset(skip) -> Langkahi X data pertama
+    # .limit(limit) -> Ambil Y data saja
+    items = query.offset(skip).limit(limit).all()
+    return items
 
 
 #=============================
