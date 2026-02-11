@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # --- SERVICE 1: DATABASE (Si Drummer) ---
+  db:
+    image: postgres:15-alpine
+    container_name: inventory_db_container
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mydonutgua123  # Password database di dalam Docker
+      POSTGRES_DB: inventory_db
+    ports:
+      - "5433:5432"  # PENTING: Kita "ungsikan" ke port 5433 di Windows biar gak tabrakan sama Postgres aslimu
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Gudang data biar awet
+
+  # --- SERVICE 2: APLIKASI (Si Gitaris) ---
+  app:
+    build: .
+    container_name: inventory_app_container
+    restart: always
+    ports:
+      - "8000:8000" # Pintu masuk aplikasi
+    depends_on:
+      - db  # Tunggu database siap dulu baru jalan
+    environment:
+      # INI KUNCINYA: Override settingan database.py lewat sini
+      - DB_HOST=db       # Panggil temannya pakai nama service "db"
+      - DB_PORT=5432     # Port internal container (tetap 5432)
+      - DB_USER=postgres
+      - DB_PASS=mydonutgua123 # Password harus sama dengan yg di atas
+      - DB_NAME=inventory_db
+
+# --- DEFINISI VOLUME (GUDANG) ---
+volumes:
+  postgres_data:

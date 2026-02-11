@@ -1,2 +1,15 @@
+# venv/
+# __pychace__/
+# Sampah Python
+__pycache__/
+*.pyc
+
+# Environment Virtual & Rahasia
 venv/
-__pychace__/
+.env
+
+# Docker Database Data (Jangan diupload!)
+postgres_data/
+
+# IDE Setting
+.vscode/
