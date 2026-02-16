@@ -78,8 +78,10 @@ def create_inventory(inventory : InventorySchema,
         description = inventory.description,
         owner_id = current_user.id #  <-- INI KUNCI DAY 11! Ambil ID dari user yang sedang login
     )
+    print(f'Mencoba menyimpan user: {new_inventory.name}')
     db.add(new_inventory)
     db.commit()
+    print('Data berhasil di-commit ke database!')
     db.refresh(new_inventory)
     return new_inventory
 
