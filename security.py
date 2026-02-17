@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import jwt, JWTError #pastikan import JWTError
 from passlib.context import CryptContext
@@ -32,9 +32,9 @@ def create_acces_token(data: dict, expires_delta: Optional[timedelta]=None):
 
     #Tentukan kapan token kadaluarsa
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
 
     # masukan info kadaluarsa ke dalam token
     to_encode.update({"exp": expire})
