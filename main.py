@@ -22,7 +22,7 @@ app.include_router(inventory.router)
 # CONTROLER (Endpoint)
 @app.get("/")
 def read_root():
-    return {"message": "Inventory API - Modular Version"}
+    return {"message": "Inventory API - Modular Version"} # pesan ini harus sama dengan test_read_root di test_main.py
 
 
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 
 #--- View (Schema) ---
@@ -11,8 +11,7 @@ class InventorySchema(BaseModel):
     stock : int = Field(..., ge=0)
     description : Optional[str] = Field(None, max_length=1000)
 
-    class Config:
-        from_attributes = True # PENTING: Biar bisa baca data dari ORM Database
+    model_config = ConfigDict(from_attributes=True) # PENTING: Biar bisa baca data dari ORM Database
 
 
 # ---- USER -----
@@ -20,15 +19,13 @@ class UserSchema(BaseModel):
     username: str
     password: str 
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ---- LOGIN ----
 class LoginSchema(BaseModel):
     username: str
     password: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
