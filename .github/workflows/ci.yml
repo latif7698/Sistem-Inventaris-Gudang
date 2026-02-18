@@ -1,41 +1,45 @@
-name: Inventory CI Pipeline
+name: Inventory CI/CD Pipeline
 
-# kapan robot ini bekerja
 on:
   push:
-    branches: ["master", "main"] # tiap ada push ke master/main
+    branches: [ "master", "main" ]
   pull_request:
-    branches: ["master", "main"] # tiap ada orang gabungin kode
+    branches: [ "master", "main" ]
 
 jobs:
-  # nama tugas: testing
+  # --- TUGAS 1: TESTING ---
   test:
-    # robotnya pakai os apa? (kita pinjam komputer Linux gratis punya github)
+    name: Run Tests
     runs-on: ubuntu-latest
-
-    # Langkah-langkah kerjanya
     steps:
-      # 1. Ambil kodingan dari repo kita
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.12"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Run Tests
+      run: |
+        pytest
 
-      # 2. Install Python 3.12
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.12"
-      
-      # 3. Install dependencies (Bahan berjalan)
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # pastikan pytest dan httpx terinstall
-          pip install pytest httpx
+  # --- TUGAS 2: DEPLOYMENT (Baru!) ---
+  deploy:
+    name: Deploy to Render
+    needs: test # <--- INI KUNCINYA! Jangan jalan kalau 'test' belum selesai/sukses.
+    runs-on: ubuntu-latest
+    
+    # Syarat: Hanya jalan kalau push ke branch utama (bukan pull request)
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Trigger Render Deployment
+      # Kita pakai curl (alat kirim request) untuk menembak Deploy Hook
+      run: |
+        curl "${{ secrets.RENDER_DEPLOY_HOOK }}"
 
-      # 4. Jalankan Tes! (Puncak acara)
-      - name: Run Test with Pytest
-        env: #tambahkan ini wajib sejajar dengan run
-          DATABASE_URL: sqlite:///./test.db # <-- Tambahkan ini (indentasi ke dalam)
-        run: |
-          pytest
+
+#Catatan keras, pelajri bagian ci yaml di CI/CD harus paham betulllll!!!!
