@@ -16,7 +16,7 @@ from database import get_db
 
 router = APIRouter(
     prefix= "/inventory", # Semua URL otomatis diawali /inventory
-    tags=["Inventory"] # Biar rapi di Swagger UI
+    tags=["Inventory Management"] # Biar rapi di Swagger UI
 )
 
 # ====== CRUD PINDAHAN =======

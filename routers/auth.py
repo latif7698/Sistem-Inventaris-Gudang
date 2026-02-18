@@ -11,7 +11,7 @@ from schemas import UserSchema  # Ambil dari schemas.py (bukan main)
 from database import get_db     # Ambil dari database.py (bukan main)
 
 
-router = APIRouter(tags=["Authentication"]) # Gak pake prefix biar URL tetap /login dan /register
+router = APIRouter(tags=["Authentication & Users"]) # Gak pake prefix biar URL tetap /login dan /register
 
 #=============================
 #          REGISTER
