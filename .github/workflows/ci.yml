@@ -1,0 +1,39 @@
+name: Inventory CI Pipeline
+
+#kapan robot ini bekerja
+on:
+  push:
+    branches: ["master", "main"] #tiap ada push ke master/main
+  pull_request:
+    branches: ["master", "main"] #tiap ada orang gabungin kode
+
+jobs:
+  # nama tugas: testing
+  test:
+    # robotnya apakai os apa? (kita pinjam komputer Linux gratis punya github)
+    runs-on: ubuntu-latest
+
+    # Langkah-langkah kerjanya
+    steps:
+      # 1. Mabul kodingan dari repo kita
+      - name: Checkout code
+      uses: actions/checkout@v3
+
+      # 2. Install Python 3.12
+      - name: Set up Python 3.12
+      uses: action/setup-python@v4
+      with:
+        python-version: "3.12"
+      
+      # 3. Install dependencies (Bon berjalan)
+      - name: Install dependencies
+      run: |
+      python -m pip install --upgrade pip
+      pip install -r requirements.txt
+      #pastikan pytest dan httpx terinstall (kalau belum ada di requirements.txt)
+      pip install pytest httpx
+
+    # 4. Jalankan Tes! (Puncak acara)
+    - name: Run Test with Pytest
+    run: |
+      pytest
