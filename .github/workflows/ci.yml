@@ -2,44 +2,46 @@ name: Inventory CI/CD Pipeline
 
 on:
   push:
-    branches: [ "master", "main" ]
+    branches: [ "main" ] # Kita fokus ke main saja
   pull_request:
-    branches: [ "master", "main" ]
+    branches: [ "main" ]
 
 jobs:
-  # --- TUGAS 1: TESTING ---
   test:
     name: Run Tests
     runs-on: ubuntu-latest
+    # Kita beri variabel palsu agar aplikasi tidak crash saat di-import
+    env:
+      DATABASE_URL: sqlite:///./test.db
+      SECRET_KEY: testing_secret_key
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
+
     - name: Set up Python 3.12
       uses: actions/setup-python@v4
       with:
         python-version: "3.12"
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install pytest httpx # Jaga-jaga jika belum ada di requirements.txt
+
     - name: Run Tests
       run: |
-        pytest
+        pytest test/ # Sebutkan nama foldernya secara spesifik
 
-  # --- TUGAS 2: DEPLOYMENT (Baru!) ---
   deploy:
     name: Deploy to Render
-    needs: test # <--- INI KUNCINYA! Jangan jalan kalau 'test' belum selesai/sukses.
+    needs: test
     runs-on: ubuntu-latest
-    
-    # Syarat: Hanya jalan kalau push ke branch utama (bukan pull request)
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-    
+    if: github.ref == 'refs/heads/main'
     steps:
     - name: Trigger Render Deployment
-      # Kita pakai curl (alat kirim request) untuk menembak Deploy Hook
       run: |
         curl "${{ secrets.RENDER_DEPLOY_HOOK }}"
-
-
-#Catatan keras, pelajri bagian ci yaml di CI/CD harus paham betulllll!!!!
