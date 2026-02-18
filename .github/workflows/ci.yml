@@ -35,5 +35,7 @@ jobs:
 
       # 4. Jalankan Tes! (Puncak acara)
       - name: Run Test with Pytest
+        env: #tambahkan ini wajib sejajar dengan run
+          DATABASE_URL: sqlite:///./test.db # <-- Tambahkan ini (indentasi ke dalam)
         run: |
           pytest
