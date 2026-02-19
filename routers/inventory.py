@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile #<-- Tambahkan File, UploadFile
 from sqlalchemy.orm import Session
 from typing import List, Optional
-
+from schemas import InventorySchema
+from database import get_db
+import shutil #<-- Untuj save file
+import os #<-- tambahakan ini untuk bikin folder
 import models 
 import database 
 import security
-from schemas import InventorySchema
-from database import get_db
 
 # # Perhatikan titik dua (..) artinya "keluar satu folder ke atas"
 # from .. import models, database, security
@@ -19,6 +20,9 @@ router = APIRouter(
     tags=["Inventory Management"] # Biar rapi di Swagger UI
 )
 
+#buat folder khusus untuk menyimpan gambar
+os.makedirs("static/images", exist_ok=True)
+
 # ====== CRUD PINDAHAN =======
 
 #=============================
@@ -29,7 +33,7 @@ def get_inventory(db: Session = Depends(get_db),
                   # ditambah current_user: models.UserDB = Depends(get_current_user)
                   curent_user : models.UserDB = Depends(security.get_current_user), # <-- INI GEMBOKNYA
                   # --- QUERY PARAMETERS (Input Tambahan di URL) ---
-                  search: Optional[str] = None, # boleh kosong. Kalau di isi jadi filter nama.
+                  search: Optional[str] = "", # boleh kosong. Kalau di isi jadi filter nama.
                   skip: int = 0, # Lewati berapa data awal? (Offset)
                   limit: int = 10 # Ambil berapa data? (Default 10 biar ringan)
                   ):
@@ -42,7 +46,7 @@ def get_inventory(db: Session = Depends(get_db),
         # Filter nama yang MENGANDUNG kata kunci (Case Insensitive ilike/contains)
         # Note: Di SQLite/Postgres biasa .contains itu Case Sensitive. 
         # Kalau mau canggih pakai .ilike(f"%{search}%") tapi .contains cukup buat latihan.
-        query = query.filter(models.InventoryDB.name.contains(search))
+        query = query.filter(models.InventoryDB.name.ilike(f"%{search}%"))
     
     # 3. Logika Pagination: Potong Datanya
     # .offset(skip) -> Langkahi X data pertama
@@ -153,8 +157,33 @@ def delete_item(id: int,
         return {"message": f"Item with id {id} successfully deleted"}
 
 
+#===========================
+#       UPLOAD IMAGE
+#===========================
+@router.post("/{id}/image")
+def upload_item_image(
+    id: int,
+    file: UploadFile = File(...), # <-- Ini akan membuat tombol "Choose File" di Swagger UI
+    db: Session = Depends(get_db),
+    current_user: models.UserDB = Depends(security.get_current_user)
+): 
+    # 1. Cari dulu barangnya, ada atau tidak?
+    db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
+    if not db_item:
+        raise HTTPException(status_code= 404, detail="Item not found")
+    # 2. Keamanan: Cek apakah yang diupload benar-benar gambar?
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail='File must be an image!')
+    # 3. Tentukan nama dan lokasi file 
+    # Format: static/images/item_1_laptop.jpg
+    file_location = f'static/images/item_{id}_{file.filename}'
 
+    # 4. Simpan file-nya ke dalam folder laptopmu
+    with open(file_location, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
 
-
-
-
+    return {
+        'message': 'Gambar berhasil diupload',
+        'item_id': id,
+        'file_path': file_location
+    }

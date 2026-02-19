@@ -4,6 +4,8 @@ from fastapi import FastAPI, Depends
 from database import SessionLocal, engine
 import models
 from routers import inventory, auth
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # panggil ini SEBELUM setup DB agar variable .env terbaca
 load_dotenv()
@@ -38,6 +40,30 @@ app = FastAPI(
     }
 )
 
+
+                        # ======= CORS ==========
+
+
+# 1. Daftarkan "Plat Nomor (Domain) frontend yang diizinkan masuk"
+origins = [
+    "http://localhost",
+    "http://localhost:3000", #biasanya dipakai oleh React / Next.js
+    "http://localhost:5173", # biasanya dipakai oleh vite/vue
+    "*"                      # Bintang (*) = Izinkan SEMUA (Hanya untuk mode Developemnt/Belajar!)
+]
+
+# 2. Pasang Satpam CORS ke dalam aplikasi
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins = origins,        # Siapa saja yang boleh masuk? (Sesuai deftar origins)
+    allow_credentials=True,         # 
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+#Jadikan folder "static" sebagai etalase publik
+app.mount('/static', StaticFiles(directory='static'), name='static')
 # ---- DAFTARKAN ROUTER (MENGHUBUNGKAN KABEL) ----
 app.include_router(auth.router)
 app.include_router(inventory.router)
