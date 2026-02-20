@@ -182,8 +182,22 @@ def upload_item_image(
     with open(file_location, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # ========================================
+    # TAMBAHAN DAY 28: SIMPAN URL KE DATABASE
+    # ========================================
+    # kita buat URL publiknya (tanpa titik awal, langsung /static/...)
+    public_url = f'/static/images/item{id}_{file.filename}'
+
+    #update kolom image_url di database
+    db_item.image_url = public_url
+    db.commit()
+    db.refresh(db_item)
+
     return {
-        'message': 'Gambar berhasil diupload',
+        'message': 'Gambar berhasil diupload dan disambungkan ke database!',
         'item_id': id,
-        'file_path': file_location
+        'file_path': public_url
     }
+
+
+

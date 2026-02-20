@@ -10,7 +10,8 @@ class InventorySchema(BaseModel):
     price : int = Field(..., ge=0)
     stock : int = Field(..., ge=0)
     description : Optional[str] = Field(None, max_length=1000)
-
+    #tambahkan url baris ini:
+    image_url : Optional[str] = None
     model_config = ConfigDict(from_attributes=True) # PENTING: Biar bisa baca data dari ORM Database
 
 

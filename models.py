@@ -13,7 +13,8 @@ class InventoryDB(Base):
 
     # KOLOM BARU: Siapa Pemiliknya?
     owner_id = Column(Integer, ForeignKey("users.id"))
-
+    #tambahkan baris ini:
+    image_url = Column(String, nullable = True) # nullable = True karena barang boleh gak punya foto
     # HUBUNGAN KE USER (Satu Barang milik satu Owner)
     owner = relationship("UserDB", back_populates = "items")
 
