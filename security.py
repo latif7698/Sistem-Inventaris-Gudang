@@ -7,11 +7,14 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from database import get_db # Ambil dari database.py
 import models
+import os
+from dotenv import load_dotenv
+# membaca file .env
+load_dotenv()
 
-
-SECRET_KEY = "rahasia_super_negara_api_backend_bootcamp"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+SECRET_KEY = os.getenv("SECRET_KEY", "fallback_rahasia_lokal")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
 #1. Konfigurasi Mesin Hitung (setup hashing)
 # Kita pakai algoritma "bcrypt" ( Standar Industri yang aman & lambat buat di-hack)
