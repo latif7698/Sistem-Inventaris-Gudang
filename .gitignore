@@ -1,5 +1,3 @@
-# venv/
-# __pychace__/
 # Sampah Python
 __pycache__/
 *.pyc
@@ -13,3 +11,12 @@ postgres_data/
 
 # IDE Setting
 .vscode/
+
+#log files
+*.log
+
+#pytest cache (jika nanti mulai testing)
+.pytest_cache/
+
+## OS generated files (khususnya kalau ada rekan tim pakai Mac)
+.DS_Store

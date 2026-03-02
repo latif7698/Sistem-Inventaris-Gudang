@@ -1,20 +1,35 @@
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile #<-- Tambahkan File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, status, Request #<-- Tambahkan File, UploadFile
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from schemas import InventorySchema
 from database import get_db
+from fastapi.encoders import jsonable_encoder
 import shutil #<-- Untuj save file
 import os #<-- tambahakan ini untuk bikin folder
 import models 
 import database 
 import security
+import redis
+import json
 
-# # Perhatikan titik dua (..) artinya "keluar satu folder ke atas"
-# from .. import models, database, security
-# from .. main import InventorySchema, get_db # Kita  import schema & dependency dari main (sementara)
+
+# -----------------------------------------
+# sambungkan ke meje resepsionis (Redis)
+# -------------------------------------------
+REDIS_URL =  os.getenv("REDIS_URL", "redis://localhost6379")
+#decode_responses = True agae balasan redias langsung berupa teks (string) bukan bytes kasar
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses = True)
+
+# tambahkan fungsi untuk pembersihan
+def clear_inventory_cache():
+    """Menghapus semua cache pencarian inventory agar tidak ada data basi"""
+    # Mencari semua laci yang namanya berawalan "inventory_search:"
+    for key in redis_client.scan_iter("inventory_search:*"):
+        redis_client.delete(key)
+    print("Cached Cleared: Semua data basi telah dihapus dari RAM!")
+
 
 # Ganti 'app' menjadi 'router'
-
 router = APIRouter(
     prefix= "/inventory", # Semua URL otomatis diawali /inventory
     tags=["Inventory Management"] # Biar rapi di Swagger UI
@@ -38,6 +53,19 @@ def get_inventory(db: Session = Depends(get_db),
                   limit: int = 10 # Ambil berapa data? (Default 10 biar ringan)
                   ):
     
+    #1. BUAT KUNCI LACI REDIS
+    # Kuncinya harus spesifik! Kalau user nyari "Asus" di halaman 2, 
+    # jangan sampai tertukar dengan pencarian "Asus" di halaman 1.
+    cache_key = f'inventory_search:{search}_skip:{skip}_limit:{limit}'
+    # 2.CEK MEJA RESEPSIONIS (CACHE HIT)
+    cached_data = redis_client.get(cache_key)
+
+    if cached_data:
+        print("CACHE HIT: Mengambil data kilat dari RAM (Redis)!")
+        return json.loads(cached_data)
+    print(" CACHE MISS: Mengambil data dari PostgreSQL...")
+
+
     # 1. Mulai Query dasar (Belum dieksekusi)
     query = db.query(models.InventoryDB)
 
@@ -52,7 +80,18 @@ def get_inventory(db: Session = Depends(get_db),
     # .offset(skip) -> Langkahi X data pertama
     # .limit(limit) -> Ambil Y data saja
     items = query.offset(skip).limit(limit).all()
+
+    # 4. FOTOKOPI & TITIPKAN KE REDIS
+    # Redis tidak mengerti bentuk "Objek SQLAlchemy", dia cuma ngerti Teks (String).
+    # Jadi kita ubah dulu jadi format kamus biasa pakai alat bawaan FastAPI.
+    items_dict = jsonable_encoder(items)
+
+    # Simpan ke Redis selama 60 detik (setex = Set with Expiration)
+    # json.dumps() mengubah kamus Python jadi Teks Murni.
+    redis_client.setex(cache_key, 60, json.dumps(items_dict))
+    # 5. Kembalikan ke user 
     return items
+
 
 
 #=============================
@@ -87,11 +126,13 @@ def create_inventory(inventory : InventorySchema,
     db.commit()
     print('Data berhasil di-commit ke database!')
     db.refresh(new_inventory)
+    # panggil petugas kebersihan
+    clear_inventory_cache()
     return new_inventory
 
 
 #=============================
-#           UPDATE
+#         UPDATE (PUT)
 #=============================
 
 @router.put("/{id}", response_model=InventorySchema)
@@ -122,7 +163,7 @@ def update_inventory(id:int,
 
     db.commit()
     db.refresh(db_item)
-
+    clear_inventory_cache()
     return db_item
 
 
@@ -153,7 +194,7 @@ def delete_item(id: int,
 
         db.delete(db_item)
         db.commit() 
-
+        clear_inventory_cache()
         return {"message": f"Item with id {id} successfully deleted"}
 
 
@@ -183,7 +224,7 @@ def upload_item_image(
         shutil.copyfileobj(file.file, buffer)
 
     # ========================================
-    # TAMBAHAN DAY 28: SIMPAN URL KE DATABASE
+    # 5. TAMBAHAN DAY 28: SIMPAN URL KE DATABASE
     # ========================================
     # kita buat URL publiknya (tanpa titik awal, langsung /static/...)
     public_url = f'/static/images/item{id}_{file.filename}'
