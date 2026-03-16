@@ -4,6 +4,7 @@ from typing import List, Optional
 from schemas import InventorySchema
 from database import get_db
 from fastapi.encoders import jsonable_encoder
+from worker import send_notification_email
 import shutil #<-- Untuj save file
 import os #<-- tambahakan ini untuk bikin folder
 import models 
@@ -19,6 +20,37 @@ import json
 REDIS_URL =  os.getenv("REDIS_URL", "redis://localhost6379")
 #decode_responses = True agae balasan redias langsung berupa teks (string) bukan bytes kasar
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses = True)
+
+#================================
+# SATPAM ANTI-SPAM (RATE LIMITER)
+# ===============================
+def check_rate_limit(request: Request):
+    """Membatasi user maksimal 5 request per 60 detik berdasarkan IP Addres"""
+    # 1. Ambil IP Address pengunjung
+    client_ip = request.client.host
+
+    # 2. Buat "Buku catatan" khusus untuk IP ini di Redis
+    key = f"rate limit:{client_ip}"
+
+    # 3. Cek apakah dia sudah punya catatan kunjungan
+    request_count = redis_client.get(key)
+
+    # 4. SANG HAKIM: kalai catatanya sudah 5 kali atau lebih, TENDANG!
+    if request_count and int(request_count) >= 5:
+        print(f"🚨BLOKIR: IP {client_ip} terdeteksi melakukan spam/DDoS!")
+        raise HTTPException(
+            status_code= 429, # 429 = Too Many Request
+            detail="Terlalu banyak request! Server kelelahan. Silahkan coba lagi dalam 1 menit."
+        )
+    
+    # 5. Kalau belum diblokir, catat kedatangannya
+    if not request_count:
+        #Jika ini kedatangan pertama, catat angka 1 dan set alarm hancur dalam 1 menit
+        redis_client.setex(key, 60, 1)
+    else:
+        # Jika kedatangan ke 2,3,4 tambah saja angkanya (+1)
+        redis_client.incr(key)
+
 
 # tambahkan fungsi untuk pembersihan
 def clear_inventory_cache():
@@ -38,25 +70,57 @@ router = APIRouter(
 #buat folder khusus untuk menyimpan gambar
 os.makedirs("static/images", exist_ok=True)
 
+#=======================================
+# ENDPOINT: PENCARIAN POPULER (TRENDING)
+#=======================================
+@router.get("/trending")
+def get_trending_searches():
+    """Mengambil 5 kata kunci yang paling sering dicari oleh user"""
+
+    # zrevrange = Z-Set Reverse Range (Ambil dari skor tertinggi ke terendah)
+    # 0, 4 = Ambil index ke-0 sampai ke-4 (Total 5 data teratas)
+    # withscores=True = Tampilkan juga jumlah pencariannya
+    trending_data = redis_client.zrevrange("trending_search", 0, 4, withscores=True)
+    
+
+    #Rapihkan datanya agar format JSON-nya cantik saat dikirim ke frontend
+    result = []
+    for item in trending_data:
+        keyword, score = item
+        result.append({
+            "keyword": keyword,
+            "search_count":int(score)
+        })
+    return {"trending_data":result}
+
+
+
 # ====== CRUD PINDAHAN =======
 
 #=============================
 #         READ (GET)
 #=============================
 @router.get("/", response_model=List[InventorySchema])
-def get_inventory(db: Session = Depends(get_db),
+def get_inventory(request: Request,
+                  db: Session = Depends(get_db),
                   # ditambah current_user: models.UserDB = Depends(get_current_user)
                   curent_user : models.UserDB = Depends(security.get_current_user), # <-- INI GEMBOKNYA
+                  #   pasang satpam redisnya disini 
+                  rate_limit : None = Depends(check_rate_limit), #satpamnya disini
                   # --- QUERY PARAMETERS (Input Tambahan di URL) ---
                   search: Optional[str] = "", # boleh kosong. Kalau di isi jadi filter nama.
                   skip: int = 0, # Lewati berapa data awal? (Offset)
                   limit: int = 10 # Ambil berapa data? (Default 10 biar ringan)
                   ):
     
+    search_term = search.strip().lower() if search else " " #rapihkan huruf kecil semua
+    if search:
+        redis_client.zincrby("trending_search", 1, search_term)
+    
     #1. BUAT KUNCI LACI REDIS
     # Kuncinya harus spesifik! Kalau user nyari "Asus" di halaman 2, 
     # jangan sampai tertukar dengan pencarian "Asus" di halaman 1.
-    cache_key = f'inventory_search:{search}_skip:{skip}_limit:{limit}'
+    cache_key = f'inventory_search:{search_term}_skip:{skip}_limit:{limit}'
     # 2.CEK MEJA RESEPSIONIS (CACHE HIT)
     cached_data = redis_client.get(cache_key)
 
@@ -128,6 +192,12 @@ def create_inventory(inventory : InventorySchema,
     db.refresh(new_inventory)
     # panggil petugas kebersihan
     clear_inventory_cache()
+
+    #Lempar tugas berat ke CELERY (Kode Baru day 37)
+    #PERHATIKAN KATA KUNCI ".delay()" Ini sangat krusial!
+    print("FastAPI: Melempar tugas kirim email ke Celery..")
+    send_notification_email.delay(new_inventory.name)
+    print("FastAPI: Tugas dilempar! Melanjutkan pelayanan user tanpa menunggu email selesai...")
     return new_inventory
 
 
@@ -163,6 +233,7 @@ def update_inventory(id:int,
 
     db.commit()
     db.refresh(db_item)
+    # panggil petugas kebersihan
     clear_inventory_cache()
     return db_item
 
@@ -194,6 +265,7 @@ def delete_item(id: int,
 
         db.delete(db_item)
         db.commit() 
+        # panggil petugas kebersihan
         clear_inventory_cache()
         return {"message": f"Item with id {id} successfully deleted"}
 
@@ -239,6 +311,4 @@ def upload_item_image(
         'item_id': id,
         'file_path': public_url
     }
-
-
 
