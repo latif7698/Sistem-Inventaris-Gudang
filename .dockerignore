@@ -1,0 +1,11 @@
+# Jangan bawa ruang isolasi lokal
+venv/
+__pycache__/
+*.pyc
+
+# JANGAN PERNAH BAWA RAHASIA NEGARA KE DALAM KONTAINER!
+.env
+
+# Jangan bawa catatan git
+.git/
+.gitignore

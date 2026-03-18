@@ -1,37 +1,81 @@
 version: '3.8'
 
 services:
-  # --- SERVICE 1: DATABASE (Si Drummer) ---
+  # --- SERVICE 1: DATABASE (Si Drummer - Tetap Aman) ---
   db:
     image: postgres:15-alpine
     container_name: inventory_db_container
     restart: always
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: mydonutgua123  # Password database di dalam Docker
+      POSTGRES_PASSWORD: mydonutgua123
       POSTGRES_DB: inventory_db
     ports:
-      - "5433:5432"  # PENTING: Kita "ungsikan" ke port 5433 di Windows biar gak tabrakan sama Postgres aslimu
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data # Gudang data biar awet
+      - postgres_data:/var/lib/postgresql/data
 
-  # --- SERVICE 2: APLIKASI (Si Gitaris) ---
+  # --- SERVICE 2: MEJA RESEPSIONIS (Redis - BARU) ---
+  redis_server:
+    image: redis:alpine
+    container_name: redis_container
+    ports:
+      - "6380:6379"
+    restart: always
+
+  # --- SERVICE 3: APLIKASI KASIR (Si Gitaris - Di-upgrade) ---
   app:
     build: .
     container_name: inventory_app_container
     restart: always
     ports:
-      - "8000:8000" # Pintu masuk aplikasi
+      - "8000:8000"
     depends_on:
-      - db  # Tunggu database siap dulu baru jalan
+      - db             # Tunggu DB siap
+      - redis_server   # Tunggu Redis siap
     environment:
-      # INI KUNCINYA: Override settingan database.py lewat sini
-      - DB_HOST=db       # Panggil temannya pakai nama service "db"
-      - DB_PORT=5432     # Port internal container (tetap 5432)
+      # Koneksi Database Lama
+      - DB_HOST=db
+      - DB_PORT=5432
       - DB_USER=postgres
-      - DB_PASS=mydonutgua123 # Password harus sama dengan yg di atas
+      - DB_PASS=mydonutgua123
       - DB_NAME=inventory_db
+      # Koneksi Redis Baru
+      - REDIS_URL=redis://redis_container:6379
 
-# --- DEFINISI VOLUME (GUDANG) ---
+  # --- SERVICE 4: KOKI (Celery Worker - BARU) ---
+  celery_worker:
+    build: .
+    container_name: celery_worker_container
+    command: celery -A worker worker --loglevel=info
+    depends_on:
+      - db
+      - redis_server
+    environment:
+      # Worker juga butuh akses ke DB dan Redis!
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASS=mydonutgua123
+      - DB_NAME=inventory_db
+      - REDIS_URL=redis://redis_server:6379
+
+  # --- SERVICE 5: MANAJER (Celery Beat - BARU) ---
+  celery_beat:
+    build: .
+    container_name: celery_beat_container
+    command: celery -A worker beat --loglevel=info
+    depends_on:
+      - db
+      - redis_server
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASS=mydonutgua123
+      - DB_NAME=inventory_db
+      - REDIS_URL=redis://redis_server:6379
+
+# --- DEFINISI VOLUME (GUDANG DATA) ---
 volumes:
   postgres_data:
