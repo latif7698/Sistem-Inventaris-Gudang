@@ -58,7 +58,7 @@ services:
       - DB_USER=postgres
       - DB_PASS=mydonutgua123
       - DB_NAME=inventory_db
-      - REDIS_URL=redis://redis_server:6379
+      - REDIS_URL=redis://redis_container:6379
 
   # --- SERVICE 5: MANAJER (Celery Beat - BARU) ---
   celery_beat:
@@ -74,7 +74,7 @@ services:
       - DB_USER=postgres
       - DB_PASS=mydonutgua123
       - DB_NAME=inventory_db
-      - REDIS_URL=redis://redis_server:6379
+      - REDIS_URL=redis://redis_container:6379
 
 # --- DEFINISI VOLUME (GUDANG DATA) ---
 volumes:

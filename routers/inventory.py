@@ -5,8 +5,8 @@ from schemas import InventorySchema
 from database import get_db
 from fastapi.encoders import jsonable_encoder
 from worker import send_notification_email
-import shutil #<-- Untuj save file
-import os #<-- tambahakan ini untuk bikin folder
+import shutil
+import os 
 import models 
 import database 
 import security
@@ -14,16 +14,13 @@ import redis
 import json
 
 
-# -----------------------------------------
-# sambungkan ke meje resepsionis (Redis)
-# -------------------------------------------
+"""Penggunaan Redis dalam Caching"""
 REDIS_URL =  os.getenv("REDIS_URL", "redis://localhost6379")
-#decode_responses = True agae balasan redias langsung berupa teks (string) bukan bytes kasar
+
+"""mengguanakan decode_responses dengan nilai true menghasilkan string bukan bytes"""
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses = True)
 
-#================================
-# SATPAM ANTI-SPAM (RATE LIMITER)
-# ===============================
+"""Rate Limiter untuk mencegah spam"""
 def check_rate_limit(request: Request):
     """Membatasi user maksimal 5 request per 60 detik berdasarkan IP Addres"""
     # 1. Ambil IP Address pengunjung
