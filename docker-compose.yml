@@ -95,6 +95,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     # Watchtower akan cek setiap 5 menit dan menghapus image lama (cleanup)
+    environment:
+      - DOCKER=1.44
     command: --interval 300 --cleanup
 
 # --- DEFINISI VOLUME ---
