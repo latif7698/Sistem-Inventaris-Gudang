@@ -24,6 +24,8 @@ deskripsi_api = """
 * **Manajemen Barang**: Operasi CRUD (Create, Read, Update, Delete) untuk data inventaris.
 
 *Dibuat dengan Python, FastAPI dan Postgresql (Neon Cloud).*
+
+* Aman lah yaa gw perbaiki di GCP puyenggg. Aman terkendali boss quuu
 """
 
 app = FastAPI(
