@@ -5,6 +5,8 @@ from schemas import InventorySchema
 from database import get_db
 from fastapi.encoders import jsonable_encoder
 from worker import send_notification_email
+from worker import record_stock_log 
+from models import LogType
 import shutil
 import os 
 import models 
@@ -101,7 +103,7 @@ def get_trending_searches():
 def get_inventory(request: Request,
                   db: Session = Depends(get_db),
                   # ditambah current_user: models.UserDB = Depends(get_current_user)
-                  curent_user : models.UserDB = Depends(security.get_current_user), # <-- INI GEMBOKNYA
+                  current_user : models.UserDB = Depends(security.get_current_user), # <-- INI GEMBOKNYA
                   #   pasang satpam redisnya disini 
                   rate_limit : None = Depends(check_rate_limit), #satpamnya disini
                   # --- QUERY PARAMETERS (Input Tambahan di URL) ---
@@ -296,7 +298,7 @@ def upload_item_image(
     # 5. TAMBAHAN DAY 28: SIMPAN URL KE DATABASE
     # ========================================
     # kita buat URL publiknya (tanpa titik awal, langsung /static/...)
-    public_url = f'/static/images/item{id}_{file.filename}'
+    public_url = f'/static/images/item_{id}_{file.filename}'
 
     #update kolom image_url di database
     db_item.image_url = public_url
@@ -308,4 +310,38 @@ def upload_item_image(
         'item_id': id,
         'file_path': public_url
     }
+
+
+@router.put("/{item_id}/stock")
+def update_stock(item_id: int, 
+                 change_amount: int,
+                 db: Session = Depends(get_db),
+                 current_user : models.UserDB = Depends(security.get_current_user)): # This JWT
+    # 1. Cari barangnya
+    item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
+    
+    # 2. validasi logika untuk tidak sampai minus pada barang
+    if item.stock + change_amount < 0:
+        raise HTTPException(status_code=400, detail="Transaksi gagal: Stock tidak mencukupi (Minus)!")
+    
+    # update stock barang
+    item.stock += change_amount
+    db.commit()
+    
+    # 3. Tentukan log type ("IN" jika nambah, "OUT" jika ngurang)
+    log_type = LogType.IN.value if change_amount > 0 else LogType.OUT.value
+    
+    # 4. SURUH CELERY MENCATAT DI BELAKANG LAYAR (Mulai Magic-nya di sini )
+    record_stock_log.delay(item_id=item.id, 
+                           change_amount=change_amount, 
+                           log_type=log_type, 
+                           user_id=current_user.id)
+    # mebersihkan data karena perubahan oleh redis 
+    clear_inventory_cache()
+    
+    return {"message": "Stok berhasil diupdate!", "current_stock": item.stock}
+
+
 
