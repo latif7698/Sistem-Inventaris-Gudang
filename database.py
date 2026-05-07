@@ -16,7 +16,7 @@ else:
     # kalau gak ada pakai cara lama (localhost/docker compose)
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
-    DB_USER = os.getenv("DB_USER", "postgres")       # <--- Perbaikan: Nama variabel benar
+    DB_USER = os.getenv("DB_USER", "postgres")       
     DB_PASS = os.getenv("DB_PASS", "mydonutgua123")  # <--- Password default kamu
     DB_NAME = os.getenv("DB_NAME", "inventory_db")
     # Gabungkan jadi URL

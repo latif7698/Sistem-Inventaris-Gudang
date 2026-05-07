@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, status, Request #<-- Tambahkan File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, status, Request 
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from schemas import InventorySchema
@@ -7,6 +7,8 @@ from fastapi.encoders import jsonable_encoder
 from worker import send_notification_email
 from worker import record_stock_log 
 from models import LogType
+from schemas import InventorySchema, StockLogResponse
+import schemas
 import shutil
 import os 
 import models 
@@ -109,7 +111,12 @@ def get_inventory(request: Request,
                   # --- QUERY PARAMETERS (Input Tambahan di URL) ---
                   search: Optional[str] = "", # boleh kosong. Kalau di isi jadi filter nama.
                   skip: int = 0, # Lewati berapa data awal? (Offset)
-                  limit: int = 10 # Ambil berapa data? (Default 10 biar ringan)
+                  limit: int = 10, # Ambil berapa data? (Default 10 biar ringan)
+
+                  #   query parameters untuk filter 
+                  min_price: Optional[int] = None, 
+                  max_price: Optional[int] = None,
+                  min_stock: int = 0
                   ):
     
     search_term = search.strip().lower() if search else " " #rapihkan huruf kecil semua
@@ -119,7 +126,7 @@ def get_inventory(request: Request,
     #1. BUAT KUNCI LACI REDIS
     # Kuncinya harus spesifik! Kalau user nyari "Asus" di halaman 2, 
     # jangan sampai tertukar dengan pencarian "Asus" di halaman 1.
-    cache_key = f'inventory_search:{search_term}_skip:{skip}_limit:{limit}'
+    cache_key = f'inventory_search:{search_term}_skip:{skip}_limit:{limit}_minP:{min_price}_maxP:{max_price}_minS:{min_stock}'
     # 2.CEK MEJA RESEPSIONIS (CACHE HIT)
     cached_data = redis_client.get(cache_key)
 
@@ -138,6 +145,15 @@ def get_inventory(request: Request,
         # Note: Di SQLite/Postgres biasa .contains itu Case Sensitive. 
         # Kalau mau canggih pakai .ilike(f"%{search}%") tapi .contains cukup buat latihan.
         query = query.filter(models.InventoryDB.name.ilike(f"%{search}%"))
+    
+    if min_price is not None:
+        query = query.filter(models.InventoryDB.price >= min_price)
+    
+    if max_price is not None:
+        query = query.filter(models.InventoryDB.price <= max_price)
+
+    if min_stock is not None:
+        query = query.filter(models.InventoryDB.price >= min_stock)
     
     # 3. Logika Pagination: Potong Datanya
     # .offset(skip) -> Langkahi X data pertama
@@ -343,5 +359,26 @@ def update_stock(item_id: int,
     
     return {"message": "Stok berhasil diupdate!", "current_stock": item.stock}
 
+
+@router.get("/{item_id}/logs", response_model=List[schemas.StockLogResponse])
+def get_item_stock_logs(
+    item_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.UserDB = Depends(security.get_current_user)
+):
+    """Melihat riwayat keluar-masuk stok untuk satu barang spesifik."""
+    
+    #  Pastikan barangnya ada
+    item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
+    
+    #  Ambil semua log untuk barang ini, urutkan dari yang PALING BARU (descending)
+    logs = db.query(models.StockLog)\
+             .filter(models.StockLog.item_id == item_id)\
+             .order_by(models.StockLog.created_at.desc())\
+             .all()
+             
+    return logs
 
 
