@@ -8,7 +8,7 @@ from worker import send_notification_email
 from worker import record_stock_log 
 from models import LogType
 from schemas import InventorySchema, StockLogResponse
-from sqlalchemy import desc, asc
+from sqlalchemy import desc, asc, func, BigInteger, cast
 from fastapi.responses import StreamingResponse
 import schemas
 import shutil
@@ -110,6 +110,37 @@ def export_inventory_csv(
     # Perintah 'attachment' ini yang memaksa browser untuk mendownload file, bukan menampilkannya
     response.headers["Content-Disposition"] = "attachment; filename=Laporan_Stock_Gudang.csv"
     return response
+
+# ========================================
+# DASHBOARD STATISTICS (AGRERASI)
+# ========================================
+@router.get("/dashboard/stats")
+def get_dashboard_statiscis(
+    db: Session = Depends(get_db),
+    current_user: models.UserDB = Depends(security.get_current_user)
+):
+
+    """Mengambil rangkuman statisics untuk layar utama (Dashboard)"""
+    # 1. Hitung total JENIS barang (Berapa baris di tabel?)
+    total_items = db.query(func.count(models.InventoryDB.id)).scalar() or 0
+    # 2. Hitung total FISIK stok (Tambahkan semua angka di kolom 'stock')
+    total_physical_count = db.query(func.count(models.InventoryDB.stock)).scalar() or 0
+    # 3. Hitung jumlah barang yang statusnya KRITIS (Stok di bawah 10)
+    critical_stock_count = db.query(func.count(models.InventoryDB.id)).filter(models.InventoryDB.stock < 10).scalar() or 0
+    # 4. (Bonus Industri) Hitung Total Nilai Aset (Harga x Stok)
+    # Ini sangat disukai manajer keuangan!
+    total_asset_value = db.query(func.sum(cast(models.InventoryDB.price, BigInteger) * models.InventoryDB.stock)).scalar() or 0
+
+    return {
+        "status": "succes",
+        "data":{
+            "total_jenis_barang": total_items,
+            "total_stock_fisik": total_physical_count,
+            "barang_stock_kritis": critical_stock_count,
+            "estimasi_nilai_aset_rp": total_asset_value
+        }
+    }
+
 #=======================================
 # ENDPOINT: PENCARIAN POPULER (TRENDING)
 #=======================================
@@ -430,5 +461,3 @@ def get_item_stock_logs(
              .all()
              
     return logs
-
-
