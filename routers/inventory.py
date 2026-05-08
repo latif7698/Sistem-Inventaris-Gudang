@@ -8,6 +8,8 @@ from worker import send_notification_email
 from worker import record_stock_log 
 from models import LogType
 from schemas import InventorySchema, StockLogResponse
+from sqlalchemy import desc, asc
+from fastapi.responses import StreamingResponse
 import schemas
 import shutil
 import os 
@@ -16,6 +18,8 @@ import database
 import security
 import redis
 import json
+import csv
+import io
 
 
 """Penggunaan Redis dalam Caching"""
@@ -71,6 +75,41 @@ router = APIRouter(
 #buat folder khusus untuk menyimpan gambar
 os.makedirs("static/images", exist_ok=True)
 
+
+# =======================================
+# EXPORT TO CSV (LAPORAN MANAJEER)
+# =======================================
+@router.get("/export/csv")
+def export_inventory_csv(
+    db: Session = Depends(get_db),
+    current_user: models.UserDB = Depends(security.get_current_user) # wajib login
+):
+    """Download seluruh data inventaris saat ini dalam format CSV (Excel)"""
+    #1. Ambil semua data barang dari Postgresql
+    items = db.query(models.InventoryDB).all()
+    # 2. siapkan ruang kosong di memori RAM (bukan harddisk server)
+    stream = io.StringIO()
+    # 3. siapkan pencatatan dengan format CSV
+    writer = csv.writer(stream) 
+    # 4. Tulis baris judul (header excel)
+    writer.writerow(["ID Barang", "Nama Barang", "Harga", "Sisa Stock", "Deskripsi", "Link Gambar"])
+    # tulis isi datanya baris demi baris menggunakan looping
+    for item in items:
+        writer.writerow([
+            item.id,
+            item.name,
+            item.price,
+            item.stock,
+            item.description,
+            item.image_url if item.image_url else "Tidak Ada Gambar"
+        ])
+    # Kembalikan kursor ke baris pertama sebelum file dikirim
+    stream.seek(0)
+    # bungkus menjadi file dan kirim ke browser pengguna
+    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    # Perintah 'attachment' ini yang memaksa browser untuk mendownload file, bukan menampilkannya
+    response.headers["Content-Disposition"] = "attachment; filename=Laporan_Stock_Gudang.csv"
+    return response
 #=======================================
 # ENDPOINT: PENCARIAN POPULER (TRENDING)
 #=======================================
@@ -116,7 +155,9 @@ def get_inventory(request: Request,
                   #   query parameters untuk filter 
                   min_price: Optional[int] = None, 
                   max_price: Optional[int] = None,
-                  min_stock: int = 0
+                  min_stock: int = 0,
+                  sorted_by: Optional[str] = "id",
+                  sorted_order: Optional[str] = "asc"
                   ):
     
     search_term = search.strip().lower() if search else " " #rapihkan huruf kecil semua
@@ -143,7 +184,6 @@ def get_inventory(request: Request,
     if search:
         # Filter nama yang MENGANDUNG kata kunci (Case Insensitive ilike/contains)
         # Note: Di SQLite/Postgres biasa .contains itu Case Sensitive. 
-        # Kalau mau canggih pakai .ilike(f"%{search}%") tapi .contains cukup buat latihan.
         query = query.filter(models.InventoryDB.name.ilike(f"%{search}%"))
     
     if min_price is not None:
@@ -154,6 +194,16 @@ def get_inventory(request: Request,
 
     if min_stock is not None:
         query = query.filter(models.InventoryDB.price >= min_stock)
+    
+    if sorted_by == "price":
+        query = query.order_by(desc(models.InventoryDB.price) if sorted_order == "desc" else asc(models.InventoryDB.price))
+    elif sorted_by == "name":
+        query = query.order_by(desc(models.InventoryDB.name) if sorted_order == "desc" else asc(models.InventoryDB.name))
+    elif sorted_by == "stock":
+        query = query.order_by(desc(models.InventoryDB.stock) if sorted_order == "desc" else asc(models.InventoryDB.stock))
+    else:
+        """default mengurutkan berdasarkan ID"""
+        query = query.order_by(desc(models.InventoryDB.id) if sorted_order == "desc" else asc(models.InventoryDB.id))
     
     # 3. Logika Pagination: Potong Datanya
     # .offset(skip) -> Langkahi X data pertama
