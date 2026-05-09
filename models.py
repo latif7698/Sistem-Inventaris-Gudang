@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Enum # <-- Tambahkan ForeignKey
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Enum, Boolean 
 from database import Base
 from sqlalchemy.orm import relationship # <-- Tambah relationship 
 from sqlalchemy.sql import func
@@ -15,6 +15,7 @@ class InventoryDB(Base):
     # KOLOM BARU: Siapa Pemiliknya?
     owner_id = Column(Integer, ForeignKey("users.id"))
     image_url = Column(String, nullable = True) # nullable = True karena barang boleh gak punya foto
+    is_deleted = Column(Boolean, default=False) # Default False (artinya barang aktif/tidak dihapus)
     # HUBUNGAN KE USER (Satu Barang milik satu Owner)
     owner = relationship("UserDB", back_populates = "items")
     logs = relationship("StockLog", back_populates="item", cascade="all, delete")

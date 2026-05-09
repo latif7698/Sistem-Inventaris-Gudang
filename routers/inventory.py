@@ -166,7 +166,7 @@ def get_trending_searches():
 
 
 
-# ====== CRUD PINDAHAN =======
+                            # ====== CRUD  =======
 
 #=============================
 #         READ (GET)
@@ -209,7 +209,8 @@ def get_inventory(request: Request,
 
 
     # 1. Mulai Query dasar (Belum dieksekusi)
-    query = db.query(models.InventoryDB)
+    # Selalu filter barang yang is_deleted == False (yang belum dihapus)
+    query = db.query(models.InventoryDB).filter(models.InventoryDB.is_deleted == False)
 
     # 2. Logika Search: Kalau user kirim kata kunci
     if search:
@@ -348,8 +349,8 @@ def delete_item(id: int,
         db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
 
         # 2. Kalau barang gak ada
-        if db_item is None:
-            raise HTTPException(status_code=404, detail="Item Not Found")
+        if db_item is None or db_item.is_deleted == True:  #jadi yang is del == True untuu soft del
+            raise HTTPException(status_code=404, detail="Item Not Found or Already deleted")
         
 
         # ======== LOGIKA DAY 12: CEK KEPEMILIKAN ========
@@ -363,7 +364,7 @@ def delete_item(id: int,
         db.commit() 
         # panggil petugas kebersihan
         clear_inventory_cache()
-        return {"message": f"Item with id {id} successfully deleted"}
+        return {"message": f"Item with id {id} successfully moved to trash (Soft Deleted)"}
 
 
 #===========================
