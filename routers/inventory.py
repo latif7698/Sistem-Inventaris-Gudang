@@ -20,10 +20,15 @@ import redis
 import json
 import csv
 import io
+import uuid
 
+
+"""folder untuk menyimpan gambar"""
+os.makedirs("static/images", exist_ok=True)
 
 """Penggunaan Redis dalam Caching"""
 REDIS_URL =  os.getenv("REDIS_URL", "redis://localhost6379")
+# REDIS_URL = os.environ["REDIS_URL"]
 
 """mengguanakan decode_responses dengan nilai true menghasilkan string bukan bytes"""
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses = True)
@@ -299,7 +304,7 @@ def create_inventory(inventory : InventorySchema,
 
 
 #=============================
-#         UPDATE (PUT)
+# UPDATE (PUT{id}) untuk barang aktif 
 #=============================
 
 @router.put("/{id}", response_model=InventorySchema)
@@ -367,48 +372,97 @@ def delete_item(id: int,
         return {"message": f"Item with id {id} successfully moved to trash (Soft Deleted)"}
 
 
+# ===========================
+# RESTORE (MENGEMBALIKAN BARANG)
+# ===========================
+@router.put("/{id}/restore")
+def restore_item(
+    id: int,
+    db : Session = Depends(get_db),
+    current_user : models.UserDB = Depends(security.get_current_user)
+):
+    # 1. Cari barangnya di database (apapun statusnya)
+    db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
+    
+    # Jika secara fisik memang tidak ada di database
+    if db_item is None:
+        raise HTTPException(status_code=404, detail="Item tidak ditemukan di database.")
+    
+    # 2. Cek apakah barangnya memang sedang terhapus
+    if db_item.is_deleted == False:
+        return {"message": f"Barang dengan id {id} tidak ada di tong sampah (Status masih aktif)."}
+    
+    # 3. Cek Kepemilikan (Tetap harus aman!)
+    if db_item.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Kamu tidak berhak mengembalikan barang ini.")
+    
+    # 4. MANTRA RESTORE: Ubah is_deleted kembali menjadi False!
+    db_item.is_deleted = False
+    db.commit()
+
+    # 5. Bersihkan cache Redis karena barang kembali muncul
+    clear_inventory_cache()
+
+    return {"message": f"Item with id {id} succesfully restored from trash!"}
+
+
+
+    
+    
 #===========================
 #       UPLOAD IMAGE
 #===========================
 @router.post("/{id}/image")
-def upload_item_image(
+async def upload_item_image(
     id: int,
     file: UploadFile = File(...), # <-- Ini akan membuat tombol "Choose File" di Swagger UI
     db: Session = Depends(get_db),
     current_user: models.UserDB = Depends(security.get_current_user)
 ): 
-    # 1. Cari dulu barangnya, ada atau tidak?
-    db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
+    """Mengunggah file gambar (JPG/PNG) untuk barang tertentu."""
+    db_item = db.query(models.InventoryDB).filter
+
+    # 1. Cari dulu barangnya, ada atau tidak dan pastikan tidak masuk ke sampah
+    db_item = (db.query(models.InventoryDB)
+               .filter(models.InventoryDB.id == id,models.InventoryDB.is_deleted == False)
+               .filter())
+    
     if not db_item:
         raise HTTPException(status_code= 404, detail="Item not found")
+    
+    # cek kempemilikan barang
+    if db_item.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Tidak berhak mengubah gambar barang ini")
+    
     # 2. Keamanan: Cek apakah yang diupload benar-benar gambar?
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail='File must be an image!')
+    
     # 3. Tentukan nama dan lokasi file 
+    # Buat Nama File Unik (Agar kalau namanya sama, tidak saling menimpa)
     # Format: static/images/item_1_laptop.jpg
-    file_location = f'static/images/item_{id}_{file.filename}'
+    file_extention = file.filename.split(".")[-1]
+    unique_filename = f"item_{id}_{uuid.uuid4().hex[:8]}.{file_extention}"
+    file_location = f'static/images{unique_filename}'
 
-    # 4. Simpan file-nya ke dalam folder laptopmu
+    # 4. Simpan File Asli ke Dalam Harddisk Server (Folder static/images)
     with open(file_location, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-
-    # ========================================
-    # 5. TAMBAHAN DAY 28: SIMPAN URL KE DATABASE
-    # ========================================
-    # kita buat URL publiknya (tanpa titik awal, langsung /static/...)
-    public_url = f'/static/images/item_{id}_{file.filename}'
-
-    #update kolom image_url di database
-    db_item.image_url = public_url
+    
+    # Update kolom image_url di Database PostgreSQL
+    db_item.image_url = f"/{file_location}"
     db.commit()
-    db.refresh(db_item)
+    clear_inventory_cache()
 
-    return {
-        'message': 'Gambar berhasil diupload dan disambungkan ke database!',
-        'item_id': id,
-        'file_path': public_url
+    return{
+        "message": "Gambar berhasil diunggah",
+        "filename": unique_filename,
+        "image_url": db_item.image_url
     }
 
+# ==============================
+# PUT UNTUK UPDATE STOCK / {item_id}
+# ==============================
 
 @router.put("/{item_id}/stock")
 def update_stock(item_id: int, 
@@ -442,6 +496,10 @@ def update_stock(item_id: int,
     return {"message": "Stok berhasil diupdate!", "current_stock": item.stock}
 
 
+
+# ===========================
+# GET{item_id} untuk riwayat keluar masuk barang 
+# ===========================
 @router.get("/{item_id}/logs", response_model=List[schemas.StockLogResponse])
 def get_item_stock_logs(
     item_id: int, 
