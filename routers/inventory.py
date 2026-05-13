@@ -365,7 +365,7 @@ def delete_item(id: int,
 
         # --------------------------------------------
 
-        db.delete(db_item)
+        db_item.is_deleted = True
         db.commit() 
         # panggil petugas kebersihan
         clear_inventory_cache()
@@ -410,7 +410,7 @@ def restore_item(
     
     
 #===========================
-#       UPLOAD IMAGE
+#   UPLOAD GAMBAR BARANG
 #===========================
 @router.post("/{id}/image")
 async def upload_item_image(
@@ -420,21 +420,19 @@ async def upload_item_image(
     current_user: models.UserDB = Depends(security.get_current_user)
 ): 
     """Mengunggah file gambar (JPG/PNG) untuk barang tertentu."""
-    db_item = db.query(models.InventoryDB).filter
-
     # 1. Cari dulu barangnya, ada atau tidak dan pastikan tidak masuk ke sampah
     db_item = (db.query(models.InventoryDB)
-               .filter(models.InventoryDB.id == id,models.InventoryDB.is_deleted == False)
-               .filter())
+               .filter(models.InventoryDB.id == id, models.InventoryDB.is_deleted == False)
+               .first())
     
     if not db_item:
         raise HTTPException(status_code= 404, detail="Item not found")
     
-    # cek kempemilikan barang
+    # cek kempemilikan barang (hanya pemilik yang bisa ganti gambar)
     if db_item.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Tidak berhak mengubah gambar barang ini")
     
-    # 2. Keamanan: Cek apakah yang diupload benar-benar gambar?
+    # 2. Keamanan: Cek apakah yang diupload benar-benar gambar / validasi tipe file
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail='File must be an image!')
     

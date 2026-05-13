@@ -48,3 +48,26 @@ class UserDB(Base):
 
     # HUBUNGKAN KE INVENTORY (Satu User punya banyak items)
     items = relationship("InventoryDB", back_populates = "owner")
+
+class TransactionDB(Base):
+    __tablename__ = "transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Barang apa yang transaksinya dicatat?
+    item_id = Column(Integer, ForeignKey("inventory.id"))
+    
+    # Siapa petugas/user yang melakukan transaksi?
+    user_id = Column(Integer, ForeignKey("users.id"))
+    
+    # Jenis transaksi: "IN" (Masuk/Restock) atau "OUT" (Keluar/Terjual)
+    transaction_type = Column(String) 
+    
+    # Berapa jumlah barangnya?
+    quantity = Column(Integer)
+    
+    # Keterangan (Misal: "Terjual ke Toko A" atau "Barang rusak dari pabrik")
+    notes = Column(String, nullable=True)
+    
+    # Kapan ini terjadi? (Otomatis terisi waktu saat ini)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
