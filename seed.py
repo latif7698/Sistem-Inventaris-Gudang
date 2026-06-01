@@ -10,7 +10,7 @@ fake = Faker('id_ID')
 brands = ["Samsung", "Asus", "Lenovo", "MacBook", "Dell", "HP", "Xiaomi", "Oppo"]
 types = ["Pro", "Air", "Ultra", "Lite", "Max", "Gaming Edition", "Enterprise"]
 
-def seed_data(jumlah=50):
+def seed_data(jumlah=200):
     print(f"🌱 Memulai proses seeding {jumlah} data barang...")
     db = SessionLocal()
     
@@ -41,14 +41,14 @@ def seed_data(jumlah=50):
             
         # Simpan semua ke PostgreSQL sekaligus
         db.commit()
-        print("✅ Seeding SELESAI! Database-mu sekarang kaya raya!")
+        print(" Seeding SELESAI! Database-mu sekarang kaya raya!")
         
     except Exception as e:
-        print(f"❌ Terjadi kesalahan: {e}")
+        print(f"Terjadi kesalahan: {e}")
         db.rollback()
     finally:
         db.close()
 
 if __name__ == "__main__":
     # Jalankan fungsi seeding dengan 50 data (bisa kamu ubah angkanya)
-    seed_data(50)
+    seed_data(200)

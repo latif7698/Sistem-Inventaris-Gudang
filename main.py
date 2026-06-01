@@ -1,21 +1,16 @@
-import os
-import models
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends
-from database import SessionLocal, engine
+from fastapi import FastAPI, Depends, Request
 from routers import inventory, auth
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-
-# panggil ini SEBELUM setup DB agar variable .env terbaca
+from routers import inventory, transactions
+from db.init_db import init_db
+import os
+import time
+import asyncio
+import logging
 load_dotenv()
-# setup DB (akan otomatis membuat tabel di neon)
-print("Sedang mencoba membuat tabel...")
-models.Base.metadata.create_all(bind=engine)
-print("Proses pembuatan table selesai")
 
-
-# 1. Buat deskripsi panjang yang elegan (Bisa pakai Markdown!)
 deskripsi_api = """
 **Sistem Inventaris Gudang API** membantu perusahaan mencatat dan melacak keluar masuk barang secara *real-time*. 🚀
 
@@ -25,7 +20,7 @@ deskripsi_api = """
 
 *Dibuat dengan Python, FastAPI dan Postgresql (Neon Cloud).*
 
-* Aman lah yaa gw perbaiki di GCP puyenggg. Aman terkendali boss quuu
+* API ini dikembangkan dengan fokus pada keamanan, skalabilitas, dan maintainability.
 """
 
 app = FastAPI(
@@ -42,19 +37,20 @@ app = FastAPI(
     }
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+#logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("uvicorn")
+
+
                         # ======= CORS ==========
 
 
-# 1. Daftarkan "Plat Nomor (Domain) frontend yang diizinkan masuk"
-origins = [
-    "http://localhost",
-    "http://localhost:3000", #biasanya dipakai oleh React / Next.js
-    "http://localhost:5173", # biasanya dipakai oleh vite/vue
-    "*"                      # Bintang (*) = Izinkan SEMUA (Hanya untuk mode Developemnt/Belajar!)
-]
+# 1. Daftarkan  (Domain) frontend yang diizinkan masuk
+origins_env = os.getenv("CORS_ORIGINS", "")
+origins = origins_env.split(",") if origins_env else ["http://localhost:3000"]
 
-# 2. Pasang Satpam CORS ke dalam aplikasi
+
+# 2. Pasang security CORS ke dalam aplikasi
 app.add_middleware(
     CORSMiddleware,
     allow_origins = origins,        # Siapa saja yang boleh masuk? (Sesuai deftar origins)
@@ -63,19 +59,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
+# ---- DAFTARKAN ROUTER (MENGHUBUNGKAN KABEL) ----
 #Jadikan folder "static" sebagai etalase publik
 app.mount('/static', StaticFiles(directory='static'), name='static')
-# ---- DAFTARKAN ROUTER (MENGHUBUNGKAN KABEL) ----
 app.include_router(auth.router)
 app.include_router(inventory.router)
+app.include_router(transactions.router)
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    # ---------------------------------------------------------
+    # FASE 1: TAMU DATANG (REQUEST MASUK)
+    # ---------------------------------------------------------
+    start_time = time.time() # Catat jam kedatangan
+    logger.info(f" {request.method} {request.url.path} - START")
+
+    # ---------------------------------------------------------
+    # FASE 2: TAMU MASUK KE RUANGAN (EKSEKUSI ENDPOINT)
+    # ---------------------------------------------------------
+    # call_next artinya: "Silakan masuk ke fungsi endpoint tujuanmu"
+    response = await call_next(request)
+
+    # ---------------------------------------------------------
+    # FASE 3: TAMU KELUAR (RESPONSE SIAP DIKIRIM)
+    # ---------------------------------------------------------
+    process_time = time.time() - start_time # Hitung durasi
+    logger.info(f"{request.method} {request.url.path} - {response.status_code} - {process_time:.4f}s")
+    # print(f"REQUEST SELESAI DALAM WAKTU: {process_time:.4f} detik")
+    
+    # Kita bisa menyisipkan data rahasia di Header Response
+    # Header custom biasanya diawali dengan 'X-'
+    response.headers["X-Process-Time"] = str(process_time)
+    
+    return response
 
 
 # CONTROLER (Endpoint)
 @app.get("/")
-def read_root():
+async def read_root():
+    await asyncio.sleep(0.5)
     return {"message": "Inventory API - Modular Version"} # pesan ini harus sama dengan test_read_root di test_main.py
-
-
-
-

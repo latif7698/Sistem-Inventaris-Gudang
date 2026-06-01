@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import List, Optional
 from datetime import datetime
 
@@ -19,14 +19,12 @@ class InventorySchema(BaseModel):
 class UserSchema(BaseModel):
     username: str
     password: str 
-
     model_config = ConfigDict(from_attributes=True)
 
 # ---- LOGIN ----
 class LoginSchema(BaseModel):
     username: str
     password: str
-
     model_config = ConfigDict(from_attributes=True)
 
 # ---- Untuk Mengirim Data Riwayat ----
@@ -36,9 +34,33 @@ class StockLogResponse(BaseModel):
     change_amount: int
     log_type : str
     user_id : Optional[int]=None
-
     model_config = ConfigDict(from_attributes=True)
 
+class StockUpdateRequest(BaseModel):
+    change_amount: int
+
+    @field_validator("change_amount")
+    @classmethod
+    def amount_tidak_boleh_nol(cls, v):
+        if v == 0:
+            raise ValueError("change_amount tidak boleh 0")
+        return v
+
+"""Schemas untuk Transaksi"""
+class TransactionBase(BaseModel):
+    item_id: int
+    transaction_type: str
+    quantity: int
+    notes: Optional[str] = None
+
+class TransactionCreate(TransactionBase):
+    pass 
+
+class TransactionResponse(TransactionBase):
+    id: int
+    user_id: int
+    timestamp: datetime
+    model_config = ConfigDict(from_attributes=True)
 
 
 

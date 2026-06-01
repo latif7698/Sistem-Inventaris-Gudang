@@ -1,33 +1,39 @@
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, status, Request 
-from sqlalchemy.orm import Session
-from typing import List, Optional
-from schemas import InventorySchema
-from database import get_db
-from fastapi.encoders import jsonable_encoder
-from worker import send_notification_email
-from worker import record_stock_log 
-from models import LogType
-from schemas import InventorySchema, StockLogResponse
-from sqlalchemy import desc, asc, func, BigInteger, cast
-from fastapi.responses import StreamingResponse
-import schemas
-import shutil
-import os 
-import models 
-import database 
-import security
-import redis
+# Standart Library
 import json
 import csv
 import io
 import uuid
+import logging
+import os 
+import shutil
 
+# Third Party 
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, status, Request 
+from sqlalchemy import desc, asc, func, BigInteger, cast
+from sqlalchemy.orm import Session
+import redis
+
+# Local Modules
+from database import get_db
+from worker import send_notification_email, record_stock_log 
+from models import LogType
+from schemas import InventorySchema, StockLogResponse, StockUpdateRequest
+from typing import List, Optional
+import schemas
+import models 
+import database 
+import security
+
+
+logger = logging.getLogger(__name__)
 
 """folder untuk menyimpan gambar"""
 os.makedirs("static/images", exist_ok=True)
 
 """Penggunaan Redis dalam Caching"""
-REDIS_URL =  os.getenv("REDIS_URL", "redis://localhost6379")
+REDIS_URL =  os.getenv("REDIS_URL", "redis://localhost:6379")
 # REDIS_URL = os.environ["REDIS_URL"]
 
 """mengguanakan decode_responses dengan nilai true menghasilkan string bukan bytes"""
@@ -45,7 +51,7 @@ def check_rate_limit(request: Request):
     # 3. Cek apakah dia sudah punya catatan kunjungan
     request_count = redis_client.get(key)
 
-    # 4. SANG HAKIM: kalai catatanya sudah 5 kali atau lebih, TENDANG!
+    # 4.  kalai catatanya sudah 5 kali atau lebih, TENDANG!
     if request_count and int(request_count) >= 5:
         print(f"🚨BLOKIR: IP {client_ip} terdeteksi melakukan spam/DDoS!")
         raise HTTPException(
@@ -129,7 +135,7 @@ def get_dashboard_statiscis(
     # 1. Hitung total JENIS barang (Berapa baris di tabel?)
     total_items = db.query(func.count(models.InventoryDB.id)).scalar() or 0
     # 2. Hitung total FISIK stok (Tambahkan semua angka di kolom 'stock')
-    total_physical_count = db.query(func.count(models.InventoryDB.stock)).scalar() or 0
+    total_physical_count = db.query(func.sum(models.InventoryDB.stock)).scalar() or 0
     # 3. Hitung jumlah barang yang statusnya KRITIS (Stok di bawah 10)
     critical_stock_count = db.query(func.count(models.InventoryDB.id)).filter(models.InventoryDB.stock < 10).scalar() or 0
     # 4. (Bonus Industri) Hitung Total Nilai Aset (Harga x Stok)
@@ -196,7 +202,7 @@ def get_inventory(request: Request,
                   sorted_order: Optional[str] = "asc"
                   ):
     
-    search_term = search.strip().lower() if search else " " #rapihkan huruf kecil semua
+    search_term = search.strip().lower() if search else "" #rapihkan huruf kecil semua
     if search:
         redis_client.zincrby("trending_search", 1, search_term)
     
@@ -230,7 +236,7 @@ def get_inventory(request: Request,
         query = query.filter(models.InventoryDB.price <= max_price)
 
     if min_stock is not None:
-        query = query.filter(models.InventoryDB.price >= min_stock)
+        query = query.filter(models.InventoryDB.stock >= min_stock)
     
     if sorted_by == "price":
         query = query.order_by(desc(models.InventoryDB.price) if sorted_order == "desc" else asc(models.InventoryDB.price))
@@ -285,14 +291,24 @@ def create_inventory(inventory : InventorySchema,
         price = inventory.price,
         stock = inventory.stock,
         description = inventory.description,
-        owner_id = current_user.id #  <-- INI KUNCI DAY 11! Ambil ID dari user yang sedang login
+        owner_id = current_user.id #  <-- Ambil ID dari user yang sedang login
     )
     print(f'Mencoba menyimpan user: {new_inventory.name}')
     db.add(new_inventory)
     db.commit()
     print('Data berhasil di-commit ke database!')
     db.refresh(new_inventory)
-    # panggil petugas kebersihan
+
+    """Pencatatan Transaksi awal"""
+    new_transaction = models.TransactionDB(
+        item_id= new_inventory.id,
+        user_id= current_user.id,
+        transaction_type = "IN", #karena barag baru masuk gudang gunakan IN
+        quantity= new_inventory.stock,
+        notes = "Stok awal saat pendaftaran barang baru"
+    )
+    db.add(new_transaction)
+    db.commit()
     clear_inventory_cache()
 
     #Lempar tugas berat ke CELERY (Kode Baru day 37)
@@ -324,7 +340,6 @@ def update_inventory(id:int,
     # jika ID memiliki barang BEDA dengan ID user yang login
     if db_item.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail= "Not authorized to delete this item")
-
     # --------------------------------------------
 
 
@@ -335,7 +350,6 @@ def update_inventory(id:int,
 
     db.commit()
     db.refresh(db_item)
-    # panggil petugas kebersihan
     clear_inventory_cache()
     return db_item
 
@@ -365,9 +379,18 @@ def delete_item(id: int,
 
         # --------------------------------------------
 
+        '''Soft delete bernilai True'''
         db_item.is_deleted = True
+
+        new_transaction = models.TransactionDB(
+            item_id= db_item.id,
+            user_id= current_user.id,
+            transaction_type = "OUT", 
+            quantity= db_item.stock,
+            notes = "Stok awal saat pendaftaran barang baru"
+        )
+        db.add(new_transaction)
         db.commit() 
-        # panggil petugas kebersihan
         clear_inventory_cache()
         return {"message": f"Item with id {id} successfully moved to trash (Soft Deleted)"}
 
@@ -441,7 +464,7 @@ async def upload_item_image(
     # Format: static/images/item_1_laptop.jpg
     file_extention = file.filename.split(".")[-1]
     unique_filename = f"item_{id}_{uuid.uuid4().hex[:8]}.{file_extention}"
-    file_location = f'static/images{unique_filename}'
+    file_location = f'static/images/{unique_filename}'
 
     # 4. Simpan File Asli ke Dalam Harddisk Server (Folder static/images)
     with open(file_location, "wb") as buffer:
@@ -463,10 +486,14 @@ async def upload_item_image(
 # ==============================
 
 @router.put("/{item_id}/stock")
-def update_stock(item_id: int, 
-                 change_amount: int,
-                 db: Session = Depends(get_db),
-                 current_user : models.UserDB = Depends(security.get_current_user)): # This JWT
+def update_stock(
+    item_id: int, 
+    payload: StockUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user : models.UserDB = Depends(security.get_current_user)
+    ): # This JWT
+
+    change_amount = payload.change_amount
     # 1. Cari barangnya
     item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).first()
     if not item:
@@ -518,3 +545,50 @@ def get_item_stock_logs(
              .all()
              
     return logs
+
+
+@router.patch("/{id}/stock")
+def adjust_stock(
+    id: int,
+    amount: int,
+    notes: str = "Penyesuaian stock dari sistem kasiir",
+    db: Session = Depends(get_db),
+    current_user: models.UserDB = Depends(security.get_current_user)
+):
+    db_item = db.query(models.InventoryDB)\
+    .filter(models.InventoryDB.id == id, models.InventoryDB.is_deleted == False)\
+            .first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Barang tidak ditemukan atau sudah dihapus")
+    
+    if amount < 0 and db_item.stock + amount < 0:
+        raise HTTPException(status_code=400,
+                            detail = f'Stock tidak mencukupi! Sista stock saat ini hanya {db_item.stock}.')
+    db_item.stock += amount
+
+    if amount != 0:
+        t_type = "IN" if amount > 0 else "OUT"
+
+        new_transaction = models.TransactionDB(
+            item_id=db_item.id,
+            user_id = current_user.id,
+            transaction_type = t_type,
+            quantity=abs(amount),
+            notes=notes
+        )
+        db.add(new_transaction)
+    db.commit()
+    clear_inventory_cache()
+
+    return{
+        "message": "Stock berhasil diupdate!",
+        "item_name": db_item.name,
+        "current_stock": db_item.stock,
+        "transaction_logged": True if amount != 0 else False
+    }
+    
+
+
+
+# belum beres besok aja
+#belum beres 'kita jeda sejenak' lanjutin di kosan
