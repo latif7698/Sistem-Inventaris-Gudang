@@ -38,13 +38,16 @@ class StockLogResponse(BaseModel):
 
 class StockUpdateRequest(BaseModel):
     change_amount: int
-
     @field_validator("change_amount")
     @classmethod
     def amount_tidak_boleh_nol(cls, v):
         if v == 0:
             raise ValueError("change_amount tidak boleh 0")
         return v
+
+class StockAdjustRequest(BaseModel):
+    amount: int
+    notes: str = "Penyesuaian stock dari sistem kasir"
 
 """Schemas untuk Transaksi"""
 class TransactionBase(BaseModel):

@@ -31,7 +31,6 @@ def get_item_transactions(
     db: Session = Depends(get_db)
 ):
     """Melihat riwayat transaksi spesifik untuk SATU barang saja."""
-    # Pastikan barangnya ada dulu
     item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Barang tidak ditemukan")

@@ -1,16 +1,24 @@
-from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, Request
-from routers import inventory, auth
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from routers import inventory, transactions
-from db.init_db import init_db
+#Standar Library
 import os
 import time
 import asyncio
 import logging
-load_dotenv()
 
+#Third Party
+from fastapi import FastAPI, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
+
+#Local Modules
+from contextlib import asynccontextmanager
+from routers import inventory, auth
+from routers import inventory, transactions
+from db.init_db import init_db
+
+
+
+load_dotenv()
 deskripsi_api = """
 **Sistem Inventaris Gudang API** membantu perusahaan mencatat dan melacak keluar masuk barang secara *real-time*. 🚀
 
@@ -50,7 +58,7 @@ origins_env = os.getenv("CORS_ORIGINS", "")
 origins = origins_env.split(",") if origins_env else ["http://localhost:3000"]
 
 
-# 2. Pasang security CORS ke dalam aplikasi
+#pasang keamanan cors
 app.add_middleware(
     CORSMiddleware,
     allow_origins = origins,        # Siapa saja yang boleh masuk? (Sesuai deftar origins)
@@ -59,11 +67,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-def on_startup():
+@asynccontextmanager
+async def lifespan(app:FastAPI):
     init_db()
+    yield
+app = FastAPI(lifespan=lifespan)
 
-# ---- DAFTARKAN ROUTER (MENGHUBUNGKAN KABEL) ----
+# ---- DAFTARKAN ROUTER ----
 #Jadikan folder "static" sebagai etalase publik
 app.mount('/static', StaticFiles(directory='static'), name='static')
 app.include_router(auth.router)

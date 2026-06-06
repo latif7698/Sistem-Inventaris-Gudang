@@ -5,14 +5,14 @@ from sqlalchemy import text
 from database import engine, Base
 import models 
 
-# 1. BACA .ENV DULU (WAJIB DI ATAS!)
+'''Untuk membaca .env biar aman'''
 load_dotenv()
 
-# Cek apakah link awan (Neon) sudah terbaca?
+
 url = os.getenv("DATABASE_URL")
 print(f"Mencoba connect ke: {url}")
 
-# 2. BARU IMPORT DATABASE SETELAH .ENV TERBACA
+
 print("Memulai proses pembuatan tabel di awan...")
 
 # 3. PALU GODAM BEKERJA
