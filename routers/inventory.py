@@ -45,17 +45,14 @@ def check_rate_limit(request: Request):
             detail="Terlalu banyak request! Server kelelahan. Silahkan coba lagi dalam 1 menit."
         )
     if not request_count:
-        #Jika ini kedatangan pertama, catat angka 1 dan set alarm hancur dalam 1 menit
         redis_client.setex(key, 60, 1)
     else:
-        # Jika kedatangan ke 2,3,4 tambah saja angkanya (+1)
         redis_client.incr(key)
 
 
-# tambahkan fungsi untuk pembersihan
 def clear_inventory_cache():
     """Menghapus semua cache pencarian inventory agar tidak ada data basi"""
-    # Mencari semua laci yang namanya berawalan "inventory_search:"
+
     for key in redis_client.scan_iter("inventory_search:*"):
         redis_client.delete(key)
     logger.info('Cache cleared: all stale inventory data removed')
@@ -64,7 +61,7 @@ def clear_inventory_cache():
 
 router = APIRouter(
     prefix= "/inventory", # Semua URL otomatis diawali /inventory
-    tags=["Inventory Management"] # Biar rapi di Swagger UI
+    tags=["Inventory Management"] 
 )
 
 
@@ -74,7 +71,7 @@ router = APIRouter(
 @router.get("/export/csv")
 def export_inventory_csv(
     db: Session = Depends(get_db),
-    current_user: models.UserDB = Depends(security.get_current_user) # wajib login
+    current_user: models.UserDB = Depends(security.get_current_user) 
 ):
     """Download seluruh data inventaris saat ini dalam format CSV (Excel)"""
     items = db.query(models.InventoryDB).all()
@@ -127,7 +124,6 @@ def get_dashboard_statistics(
 def get_trending_searches():
     """Mengambil 5 kata kunci yang paling sering dicari oleh user"""
     trending_data = redis_client.zrevrange("trending_search", 0, 4, withscores=True)
-    #Rapihkan datanya agar format JSON-nya bagus saat dikirim ke frontend
     result = []
     for item in trending_data:
         keyword, score = item
@@ -146,7 +142,6 @@ def get_inventory(request: Request,
                   db: Session = Depends(get_db),
                   current_user : models.UserDB = Depends(security.get_current_user),
                   rate_limit : None = Depends(check_rate_limit), 
-                  # --- QUERY PARAMETERS (Input Tambahan di URL) ---
                   search: Optional[str] = "", 
                   skip: int = 0,
                   limit: int = 10, 
@@ -159,31 +154,20 @@ def get_inventory(request: Request,
                   sorted_order: Optional[str] = "asc"
                   ):
     
-    search_term = search.strip().lower() if search else "" #rapihkan huruf kecil semua
+    search_term = search.strip().lower() if search else "" 
     if search:
         redis_client.zincrby("trending_search", 1, search_term)
     
-    #1. BUAT KUNCI LACI REDIS
-    # Kuncinya harus spesifik! Kalau user nyari "Asus" di halaman 2, 
-    # jangan sampai tertukar dengan pencarian "Asus" di halaman 1.
     cache_key = f'inventory_search:{search_term}_skip:{skip}_limit:{limit}_minP:{min_price}_maxP:{max_price}_minS:{min_stock}'
-    # 2.CEK MEJA RESEPSIONIS (CACHE HIT)
     cached_data = redis_client.get(cache_key)
 
     if cached_data:
         logger.info('Cache HIT for key: %s', cache_key)
         return json.loads(cached_data)
     logger.info("Cache MISS, querying PostgreSQL for keys %s", cache_key)
-
-
-    # 1. Mulai Query dasar (Belum dieksekusi)
-    # Selalu filter barang yang is_deleted == False (yang belum dihapus)
     query = db.query(models.InventoryDB).filter(models.InventoryDB.is_deleted == False)
 
-    # 2. Logika Search: Kalau user kirim kata kunci
-    if search:
-        # Filter nama yang MENGANDUNG kata kunci (Case Insensitive ilike/contains)
-        # Note: Di SQLite/Postgres biasa .contains itu Case Sensitive. 
+    if search: 
         query = query.filter(models.InventoryDB.name.ilike(f"%{search}%"))
     
     if min_price is not None:
@@ -207,17 +191,8 @@ def get_inventory(request: Request,
     
     #logika pagniaton
     items = query.offset(skip).limit(limit).all()
-
-    # 4. FOTOKOPI & TITIPKAN KE REDIS
-    # Redis tidak mengerti bentuk "Objek SQLAlchemy", dia cuma ngerti Teks (String).
-    # Jadi kita ubah dulu jadi format kamus biasa pakai alat bawaan FastAPI.
-    # 
     items_dict = jsonable_encoder(items)
-
-    # Simpan ke Redis selama 60 detik (setex = Set with Expiration)
-    # json.dumps() mengubah kamus Python jadi Teks Murni.
     redis_client.setex(cache_key, 60, json.dumps(items_dict))
-    # 5. Kembalikan ke user 
     return items
 
 
@@ -229,21 +204,18 @@ def get_inventory(request: Request,
 @router.post("/", status_code=201)
 def create_inventory(inventory : InventorySchema, 
                      db : Session = Depends(get_db),
-                     # Tambahkan: current_user: models.UserDB = Depends(get_current_user)
-                     current_user : models.UserDB = Depends(security.get_current_user) # <-- INI GEMBOKNYA 
+                     current_user : models.UserDB = Depends(security.get_current_user) 
                      ):
-    #Cek ID Barang/Validasi Manual
     cek_duplikasi = db.query(models.InventoryDB).filter(models.InventoryDB.id == inventory.id).first()
     if cek_duplikasi:
         raise HTTPException(status_code=400, detail="ID already registered")
 
-    # SIMPAN KE DATABASE (DENGAN STEMPEL PEMILIK)
     new_inventory = models.InventoryDB(
         name = inventory.name,
         price = inventory.price,
         stock = inventory.stock,
         description = inventory.description,
-        owner_id = current_user.id #  Ambil ID dari user yang sedang login
+        owner_id = current_user.id 
     )
     logger.info('Saving new inventory item: %s', new_inventory.name)
     db.add(new_inventory)
@@ -255,15 +227,14 @@ def create_inventory(inventory : InventorySchema,
     new_transaction = models.TransactionDB(
         item_id= new_inventory.id,
         user_id= current_user.id,
-        transaction_type = "IN", #karena barag baru masuk gudang gunakan IN
+        transaction_type = "IN", 
         quantity= new_inventory.stock,
         notes = "Stok awal saat pendaftaran barang baru"
     )
+
     db.add(new_transaction)
     db.commit()
     clear_inventory_cache()
-
-    # background task celery
     logger.info("Sending email notification via Celery for item: %s", new_inventory.name)
     send_notification_email.delay(new_inventory.name)
     return new_inventory
@@ -308,20 +279,12 @@ def delete_item(id: int,
                 db: Session=Depends(get_db),
                 current_user: models.UserDB = Depends(security.get_current_user)
                 ):
-        # 1. Cari barangnya dulu
         db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
-
-        # 2. Kalau barang gak ada
-        if db_item is None or db_item.is_deleted == True:  #jadi yang is del == True untuu soft del
+        if db_item is None or db_item.is_deleted == True:  
             raise HTTPException(status_code=404, detail="Item Not Found or Already deleted")
         
-
-        # ======== LOGIKA DAY 12: CEK KEPEMILIKAN ========
-        # jika ID memiliki barang BEDA dengan ID user yang login
         if db_item.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail= "Not authorized to delete this item")
-
-        # --------------------------------------------
 
         '''Soft delete bernilai True'''
         db_item.is_deleted = True
@@ -348,46 +311,34 @@ def restore_item(
     db : Session = Depends(get_db),
     current_user : models.UserDB = Depends(security.get_current_user)
 ):
-    # 1. Cari barangnya di database (apapun statusnya)
     db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
     
-    # Jika secara fisik memang tidak ada di database
     if db_item is None:
         raise HTTPException(status_code=404, detail="Item tidak ditemukan di database.")
     
-    # 2. Cek apakah barangnya memang sedang terhapus
     if db_item.is_deleted == False:
         return {"message": f"Barang dengan id {id} tidak ada di tong sampah (Status masih aktif)."}
     
-    # 3. Cek Kepemilikan (Tetap harus aman!)
     if db_item.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Kamu tidak berhak mengembalikan barang ini.")
     
-    # 4. MANTRA RESTORE: Ubah is_deleted kembali menjadi False!
     db_item.is_deleted = False
     db.commit()
-
-    # 5. Bersihkan cache Redis karena barang kembali muncul
     clear_inventory_cache()
-
     return {"message": f"Item with id {id} succesfully restored from trash!"}
 
 
-
-    
-    
 #===========================
 #   UPLOAD GAMBAR BARANG
 #===========================
 @router.post("/{id}/image")
 def upload_item_image(
     id: int,
-    file: UploadFile = File(...), # <-- Ini akan membuat tombol "Choose File" di Swagger UI
+    file: UploadFile = File(...), 
     db: Session = Depends(get_db),
     current_user: models.UserDB = Depends(security.get_current_user)
 ): 
     """Mengunggah file gambar (JPG/PNG) untuk barang tertentu."""
-    # 1. Cari dulu barangnya, ada atau tidak dan pastikan tidak masuk ke sampah
     db_item = (db.query(models.InventoryDB)
                .filter(models.InventoryDB.id == id, models.InventoryDB.is_deleted == False)
                .first())
@@ -395,26 +346,19 @@ def upload_item_image(
     if not db_item:
         raise HTTPException(status_code= 404, detail="Item not found")
     
-    # cek kempemilikan barang (hanya pemilik yang bisa ganti gambar)
     if db_item.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Tidak berhak mengubah gambar barang ini")
     
-    # 2. Keamanan: Cek apakah yang diupload benar-benar gambar / validasi tipe file
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail='File must be an image!')
     
-    # 3. Tentukan nama dan lokasi file 
-    # Buat Nama File Unik (Agar kalau namanya sama, tidak saling menimpa)
-    # Format: static/images/item_1_laptop.jpg
     file_extention = file.filename.split(".")[-1]
     unique_filename = f"item_{id}_{uuid.uuid4().hex[:8]}.{file_extention}"
     file_location = f'static/images/{unique_filename}'
 
-    # 4. Simpan File Asli ke Dalam Harddisk Server (Folder static/images)
     with open(file_location, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
-    # Update kolom image_url di Database PostgreSQL
     db_item.image_url = f"/{file_location}"
     db.commit()
     clear_inventory_cache()
@@ -429,40 +373,33 @@ def upload_item_image(
 # PUT UNTUK UPDATE STOCK / {item_id}
 # ==============================
 
-# @router.put("/{item_id}/stock")
-# def update_stock(
-#     item_id: int, 
-#     payload: StockUpdateRequest,
-#     db: Session = Depends(get_db),
-#     current_user : models.UserDB = Depends(security.get_current_user)
-#     ): # This JWT
+@router.put("/{item_id}/stock")
+def update_stock(
+    item_id: int, 
+    payload: StockUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user : models.UserDB = Depends(security.get_current_user)
+    ): 
 
-#     change_amount = payload.change_amount
-#     # 1. Cari barangnya
-#     item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).with_for_update().first()
-#     if not item:
-#         raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
+    change_amount = payload.change_amount
+    item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).with_for_update().first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
     
-#     # 2. validasi logika untuk tidak sampai minus pada barang
-#     if item.stock + change_amount < 0:
-#         raise HTTPException(status_code=400, detail="Transaksi gagal: Stock tidak mencukupi (Minus)!")
+    if item.stock + change_amount < 0:
+        raise HTTPException(status_code=400, detail="Transaksi gagal: Stock tidak mencukupi (Minus)!")
     
-#     # update stock barang
-#     item.stock += change_amount
-#     db.commit()
+    item.stock += change_amount
+    db.commit()
+    log_type = LogType.IN.value if change_amount > 0 else LogType.OUT.value
+
+    record_stock_log.delay(item_id=item.id, 
+                           change_amount=change_amount, 
+                           log_type=log_type, 
+                           user_id=current_user.id)
+    clear_inventory_cache()
     
-#     # 3. Tentukan log type ("IN" jika nambah, "OUT" jika ngurang)
-#     log_type = LogType.IN.value if change_amount > 0 else LogType.OUT.value
-    
-#     # 4. SURUH CELERY MENCATAT DI BELAKANG LAYAR (Mulai Magic-nya di sini )
-#     record_stock_log.delay(item_id=item.id, 
-#                            change_amount=change_amount, 
-#                            log_type=log_type, 
-#                            user_id=current_user.id)
-#     # mebersihkan data karena perubahan oleh redis 
-#     clear_inventory_cache()
-    
-#     return {"message": "Stok berhasil diupdate!", "current_stock": item.stock}
+    return {"message": "Stok berhasil diupdate!", "current_stock": item.stock}
 
 
 
@@ -476,13 +413,11 @@ def get_item_stock_logs(
     current_user: models.UserDB = Depends(security.get_current_user)
 ):
     """Melihat riwayat keluar-masuk stok untuk satu barang spesifik."""
-    
-    #  Pastikan barangnya ada
+
     item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
     
-    #  Ambil semua log untuk barang ini, urutkan dari yang PALING BARU (descending)
     logs = db.query(models.StockLog)\
              .filter(models.StockLog.item_id == item_id)\
              .order_by(models.StockLog.created_at.desc())\
@@ -535,7 +470,3 @@ def adjust_stock(
         "transaction_logged": True if amount != 0 else False
     }
     
-
-
-
-#Todo: refactoring code and change print with logging and logger = done✅

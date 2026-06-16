@@ -1,12 +1,11 @@
-# Sampah Python
 __pycache__/
 *.pyc
 
-# Environment Virtual & Rahasia
+# Environment Virtual 
 venv/
 .env
 
-# Docker Database Data (Jangan diupload!)
+# Docker Database Data 
 postgres_data/
 
 # IDE Setting
@@ -15,8 +14,8 @@ postgres_data/
 #log files
 *.log
 
-#pytest cache (jika nanti mulai testing)
+#pytest cache 
 .pytest_cache/
 
-## OS generated files (khususnya kalau ada rekan tim pakai Mac)
+## OS generated files 
 .DS_Store

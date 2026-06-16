@@ -15,7 +15,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  # --- SERVICE 2: MEJA RESEPSIONIS (Redis) ---
+  # --- SERVICE 2:  (Redis) ---
   redis_server:
     image: redis:alpine
     container_name: redis_container
@@ -26,7 +26,6 @@ services:
   # --- SERVICE 3: APLIKASI KASIR ---
   app:
     build: .
-    # WAJIB ADA IMAGE: agar Watchtower tahu apa yang harus di-pull dari Docker Hub
     image: latiff74/warehouse-api:latest 
     container_name: inventory_app_container
     restart: always
@@ -41,9 +40,8 @@ services:
       - DB_NAME=inventory_db
       - REDIS_URL=redis://redis_container:6379
 
-  # --- SERVICE 4: KOKI (Celery Worker) ---
+  # --- SERVICE 4:  Celery Worker ---
   celery_worker:
-    # Menggunakan image yang sama agar tidak build ulang terus-menerus
     image: latiff74/warehouse-api:latest
     container_name: celery_worker_container
     command: celery -A worker worker --loglevel=info
@@ -58,7 +56,7 @@ services:
       - DB_NAME=inventory_db
       - REDIS_URL=redis://redis_container:6379
 
-  # --- SERVICE 5: MANAJER (Celery Beat) ---
+  # --- SERVICE 5:  Celery Beat ---
   celery_beat:
     image: latiff74/warehouse-api:latest
     container_name: celery_beat_container
@@ -74,27 +72,26 @@ services:
       - DB_NAME=inventory_db
       - REDIS_URL=redis://redis_container:6379
 
-  # --- SERVICE 6: SATPAM (Nginx) ---
+  # --- SERVICE 6: Nginx ---
   nginx:
     image: nginx:alpine
     container_name: nginx_proxy
     ports:
       - "80:80"
-      - "443:443" #untuk membuka pintu HTTPS
+      - "443:443" 
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
-      - /etc/letsencrypt:/etc/letsencrypt:ro # Izin baca sertifikat
+      - /etc/letsencrypt:/etc/letsencrypt:ro 
     depends_on:
       - app
 
-  # --- SERVICE 7: SI PENGINTAI (Watchtower) ---
+  # --- SERVICE 7: Watchtower ---
   watchtower:
     image: containrrr/watchtower
     container_name: watchtower_bot
     restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    # Watchtower akan cek setiap 5 menit dan menghapus image lama (cleanup)
     environment:
       - DOCKER=1.44
     command: --interval 300 --cleanup

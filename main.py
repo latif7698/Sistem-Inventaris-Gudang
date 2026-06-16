@@ -53,16 +53,15 @@ logger = logging.getLogger("uvicorn")
                         # ======= CORS ==========
 
 
-# 1. Daftarkan  (Domain) frontend yang diizinkan masuk
+
 origins_env = os.getenv("CORS_ORIGINS", "")
 origins = origins_env.split(",") if origins_env else ["http://localhost:3000"]
 
 
-#pasang keamanan cors
 app.add_middleware(
     CORSMiddleware,
-    allow_origins = origins,        # Siapa saja yang boleh masuk? (Sesuai deftar origins)
-    allow_credentials=True,         # 
+    allow_origins = origins,        
+    allow_credentials=True,         
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -73,8 +72,7 @@ async def lifespan(app:FastAPI):
     yield
 app = FastAPI(lifespan=lifespan)
 
-# ---- DAFTARKAN ROUTER ----
-#Jadikan folder "static" sebagai etalase publik
+
 app.mount('/static', StaticFiles(directory='static'), name='static')
 app.include_router(auth.router)
 app.include_router(inventory.router)
@@ -82,27 +80,14 @@ app.include_router(transactions.router)
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
-    # ---------------------------------------------------------
-    # FASE 1: TAMU DATANG (REQUEST MASUK)
-    # ---------------------------------------------------------
+
     start_time = time.time() # Catat jam kedatangan
     logger.info(f" {request.method} {request.url.path} - START")
 
-    # ---------------------------------------------------------
-    # FASE 2: TAMU MASUK KE RUANGAN (EKSEKUSI ENDPOINT)
-    # ---------------------------------------------------------
-    # call_next artinya: "Silakan masuk ke fungsi endpoint tujuanmu"
     response = await call_next(request)
 
-    # ---------------------------------------------------------
-    # FASE 3: TAMU KELUAR (RESPONSE SIAP DIKIRIM)
-    # ---------------------------------------------------------
     process_time = time.time() - start_time # Hitung durasi
     logger.info(f"{request.method} {request.url.path} - {response.status_code} - {process_time:.4f}s")
-    # print(f"REQUEST SELESAI DALAM WAKTU: {process_time:.4f} detik")
-    
-    # Kita bisa menyisipkan data rahasia di Header Response
-    # Header custom biasanya diawali dengan 'X-'
     response.headers["X-Process-Time"] = str(process_time)
     
     return response
