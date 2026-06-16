@@ -19,10 +19,15 @@ from db.init_db import init_db
 
 
 load_dotenv()
+@asynccontextmanager
+async def lifespan(app:FastAPI):
+    init_db()
+    yield
+app = FastAPI(lifespan=lifespan)
 deskripsi_api = """
 **Sistem Inventaris Gudang API** membantu perusahaan mencatat dan melacak keluar masuk barang secara *real-time*. 🚀
 
-## 📦Fitur Utama:
+## Fitur Utama:
 * **Authentikasi**: Sistem *Login* dan *Register* berlapis keamanan JWT Token.
 * **Manajemen Barang**: Operasi CRUD (Create, Read, Update, Delete) untuk data inventaris.
 
@@ -36,16 +41,15 @@ app = FastAPI(
     description=deskripsi_api,
     version="1.0.0",
     contact={
-        "name": "Latif - Backend Engineer",
+        "name": "Latif -  CS | BE Dev",
         "url": "https://github.com/latif7698",
-        "email": "email.profesional.aasepabdullatip@gmail.com",
+        "email": "email.profesional.hello.alatip@gmail.com",
     },
     license_info={
         "name": "MIT License",
     }
 )
 
-#logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("uvicorn")
 
@@ -66,13 +70,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@asynccontextmanager
-async def lifespan(app:FastAPI):
-    init_db()
-    yield
-app = FastAPI(lifespan=lifespan)
-
-
 app.mount('/static', StaticFiles(directory='static'), name='static')
 app.include_router(auth.router)
 app.include_router(inventory.router)
@@ -81,12 +78,10 @@ app.include_router(transactions.router)
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
 
-    start_time = time.time() # Catat jam kedatangan
+    start_time = time.time() 
     logger.info(f" {request.method} {request.url.path} - START")
-
     response = await call_next(request)
-
-    process_time = time.time() - start_time # Hitung durasi
+    process_time = time.time() - start_time 
     logger.info(f"{request.method} {request.url.path} - {response.status_code} - {process_time:.4f}s")
     response.headers["X-Process-Time"] = str(process_time)
     
@@ -97,4 +92,4 @@ async def add_process_time_header(request: Request, call_next):
 @app.get("/")
 async def read_root():
     await asyncio.sleep(0.5)
-    return {"message": "Inventory API - Modular Version"} # pesan ini harus sama dengan test_read_root di test_main.py
+    return {"message": "Inventory API - Modular Version"} 
