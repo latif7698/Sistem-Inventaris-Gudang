@@ -113,8 +113,8 @@ Computer Science Student · Backend Engineering Enthusiast
 
 Passionate about Cloud Infrastructure, DevSecOps, and High-Performance Systems.
 
-- 🔗 LinkedIn: [linkedin.com/in/asepabdullatip]
-- 📧 Email: [aasepabdullatip@gmail.com]
+- 🔗 LinkedIn: https://www.linkedin.com/asepabdullatip
+- 📧 Email: aasepabdullatip@gmail.com
 
 ---
 
