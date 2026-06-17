@@ -105,34 +105,6 @@ This API is actively deployed on Google Cloud Platform.
 | **Domain Routing** | DuckDNS |
 | **CI/CD** | GitHub Actions (auto-deploy via SSH on push to `main`) |
 
----
-
-## 📁 Project Structure
-
-```
-Sistem-Inventaris-Gudang/
-├── app/
-│   ├── main.py              # FastAPI entry point
-│   ├── models/              # SQLAlchemy models
-│   ├── routers/             # API route handlers
-│   ├── schemas/             # Pydantic schemas
-│   ├── core/                # Config, security, dependencies
-│   └── tasks/               # Celery async tasks
-├── tests/
-│   ├── test_auth.py         # Auth unit/integration tests
-│   ├── test_crud.py         # CRUD unit/integration tests
-│   └── load_test.py         # Locust load testing script
-├── alembic/                 # Database migration files
-├── seed.py                  # Mock data seeding script
-├── docker-compose.yml       # Multi-container orchestration
-├── nginx.conf               # Nginx reverse proxy config
-├── .github/
-│   └── workflows/
-│       └── ci.yml           # GitHub Actions CI/CD pipeline
-└── .env                     # Environment variables (not committed)
-```
-
----
 
 ## 👤 Author
 
@@ -141,8 +113,8 @@ Computer Science Student · Backend Engineering Enthusiast
 
 Passionate about Cloud Infrastructure, DevSecOps, and High-Performance Systems.
 
-- 🔗 LinkedIn: [Your LinkedIn URL]
-- 📧 Email: [Your Professional Email]
+- 🔗 LinkedIn: [linkedin.com/in/asepabdullatip]
+- 📧 Email: [aasepabdullatip@gmail.com]
 
 ---
 
