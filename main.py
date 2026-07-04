@@ -54,13 +54,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("uvicorn")
 
 
-                        # ======= CORS ==========
-
-
-
+# ======= CORS ==========
 origins_env = os.getenv("CORS_ORIGINS", "")
 origins = origins_env.split(",") if origins_env else ["http://localhost:3000"]
-
 
 app.add_middleware(
     CORSMiddleware,
