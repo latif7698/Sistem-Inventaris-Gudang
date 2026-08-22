@@ -1,17 +1,22 @@
+# third party
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
+#standart library
 import models
 import security
 import database
+import logging
+
+# local modules
 from schemas import UserSchema  
 from database import get_db    
 
 
 router = APIRouter(tags=["Authentication & Users"]) 
-
+logger = logging.getLogger(__name__)
 #=============================
 #          REGISTER
 #=============================
@@ -27,7 +32,7 @@ def register_user(user: UserSchema, db: Session = Depends(get_db)):
         username = user.username,
         hashed_password = hashed_pwd 
     )
-    print(f"Mencoba menyimpan user: {new_user.username}")
+    logger.info(f"Mencoba menyimpan user: {new_user.username}")
     db.add(new_user)
     db.commit()
     print("Data berhasil di-commit ke database!")
