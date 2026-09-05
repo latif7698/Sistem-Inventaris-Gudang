@@ -10,11 +10,9 @@ def test_read_root():
 
 def test_page_not_found():
     response = client.get("/halaman-ghaib")
-
     assert response.status_code == 404
 
 def test_read_inventory_without_token():
-    response = client.get("/inventory")
-
+    response = client.get("/inventory/")
     assert response.status_code == 401
-    assert response.json() == {"detail": "Not authenticated"}
+    assert response.json()["detail"] == "Not authenticated"

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from main import app
 from database import get_db
 from database import Base
+from worker import celery_app
 
 SQLALCHEMY_DATABASE_URL = "sqlite://"
 
@@ -17,6 +18,12 @@ engine = create_engine(
 
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+@pytest.fixture(autouse=True)
+def configure_celery_eager():
+    celery_app.conf.update(
+        task_always_eager=True,
+        task_eager_propagates=True,
+    )
 
 @pytest.fixture(scope="function")
 def db():
