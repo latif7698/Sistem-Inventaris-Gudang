@@ -23,7 +23,7 @@ load_dotenv()
 async def lifespan(app:FastAPI):
     init_db()
     yield
-app = FastAPI(lifespan=lifespan)
+
 deskripsi_api = """
 **Sistem Inventaris Gudang API** membantu perusahaan mencatat dan melacak keluar masuk barang secara *real-time*. 🚀
 
@@ -37,6 +37,7 @@ deskripsi_api = """
 """
 
 app = FastAPI(
+    lifespan=lifespan,
     title="Warehouse Inventory API",
     description=deskripsi_api,
     version="1.0.0",

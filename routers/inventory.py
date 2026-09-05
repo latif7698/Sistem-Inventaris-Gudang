@@ -257,7 +257,7 @@ def update_inventory(id:int,
     '''mengecek kepemilika: jika ID memiliki barang BEDA dengan ID user yang login'''
     
     if db_item.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail= "Not authorized to delete this item")
+        raise HTTPException(status_code=403, detail= "Not authorized to update this item")
     
     db_item.name = inventory_update.name
     db_item.price = inventory_update.price
@@ -294,7 +294,7 @@ def delete_item(id: int,
             user_id= current_user.id,
             transaction_type = "OUT", 
             quantity= db_item.stock,
-            notes = "Stok awal saat pendaftaran barang baru"
+            notes = "Barang dihapus (soft delete)"
         )
         db.add(new_transaction)
         db.commit() 

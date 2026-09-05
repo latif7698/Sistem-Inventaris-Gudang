@@ -37,10 +37,6 @@ def create_acces_token(data: dict, expires_delta: Optional[timedelta]=None):
     return encoded_jwt
 
 
-from fastapi import HTTPException, status
-from jose import JWTError, jwt #pastikan import JWTError
-
-
 def verify_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -61,7 +57,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if username is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail= "Cloud not Validate credentials",
+            detail= "Could not Validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
     user = db.query(models.UserDB).filter(models.UserDB.username == username).first()

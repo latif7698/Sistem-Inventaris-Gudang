@@ -8,7 +8,7 @@ def test_read_root():
     assert response.status_code == 200
     assert response.json() == {"message": "Inventory API - Modular Version"}
 
-def tetst_page_not_found():
+def test_page_not_found():
     response = client.get("/halaman-ghaib")
 
     assert response.status_code == 404
