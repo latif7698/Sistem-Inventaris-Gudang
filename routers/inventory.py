@@ -26,47 +26,70 @@ import models
 import database 
 import security
 
-
 logger = logging.getLogger(__name__)
-REDIS_URL =  os.getenv("REDIS_URL", "redis://localhost:6379")
-redis_client = redis.Redis.from_url(REDIS_URL, decode_responses = True) 
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+try:
+    redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+except Exception as e:
+    logger.warning(f"Failed to initialize Redis client: {e}")
+    redis_client = None
+
 os.makedirs("static/images", exist_ok=True) 
 
 def check_rate_limit(request: Request):
-    """Membatasi user maksimal 5 request per 60 detik berdasarkan IP Addres"""
-    client_ip = request.client.host
-    key = f"rate limit:{client_ip}"
-    request_count = redis_client.get(key)
+    """Membatasi user maksimal 5 request per 60 detik berdasarkan IP Address"""
+    if not redis_client:
+        return
+    try:
+        client_ip = request.client.host if request.client else "unknown"
+        key = f"rate_limit:{client_ip}"
+        request_count = redis_client.get(key)
 
-    if request_count and int(request_count) >= 5:
-        logger.warning("Rate limit exceeded for IP: %s", client_ip)
-        raise HTTPException(
-            status_code= 429,
-            detail="Terlalu banyak request! Server kelelahan. Silahkan coba lagi dalam 1 menit."
-        )
-    if not request_count:
-        redis_client.setex(key, 60, 1)
-    else:
-        redis_client.incr(key)
-
+        if request_count and int(request_count) >= 60:
+            logger.warning("Rate limit exceeded for IP: %s", client_ip)
+            raise HTTPException(
+                status_code=429,
+                detail="Terlalu banyak request! Server kelelahan. Silahkan coba lagi dalam 1 menit."
+            )
+        if not request_count:
+            redis_client.setex(key, 60, 1)
+        else:
+            redis_client.incr(key)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.debug(f"Redis rate limit check bypassed: {e}")
 
 def clear_inventory_cache():
     """Menghapus semua cache pencarian inventory agar tidak ada data basi"""
+    if not redis_client:
+        return
+    try:
+        for key in redis_client.scan_iter("inventory_search:*"):
+            redis_client.delete(key)
+        logger.info("Cache cleared: all stale inventory data removed")
+    except Exception as e:
+        logger.debug(f"Redis cache clear bypassed: {e}")
 
-    for key in redis_client.scan_iter("inventory_search:*"):
-        redis_client.delete(key)
-    logger.info('Cache cleared: all stale inventory data removed')
-
-
+def log_transaction(db: Session, item_id: int, user_id: int, transaction_type: str, quantity: int, notes: str = None):
+    """Helper method untuk mencatat riwayat transaksi ke database"""
+    transaksi = models.TransactionDB(
+        item_id=item_id,
+        user_id=user_id,
+        transaction_type=transaction_type,
+        quantity=quantity,
+        notes=notes
+    )
+    db.add(transaksi)
 
 router = APIRouter(
-    prefix= "/inventory", # Semua URL otomatis diawali /inventory
+    prefix="/inventory",
     tags=["Inventory Management"] 
 )
 
-
 # =======================================
-# EXPORT TO CSV (LAPORAN MANAJEER)
+# EXPORT TO CSV (LAPORAN MANAJER)
 # =======================================
 @router.get("/export/csv")
 def export_inventory_csv(
@@ -74,7 +97,7 @@ def export_inventory_csv(
     current_user: models.UserDB = Depends(security.get_current_user) 
 ):
     """Download seluruh data inventaris saat ini dalam format CSV (Excel)"""
-    items = db.query(models.InventoryDB).all()
+    items = db.query(models.InventoryDB).filter(models.InventoryDB.is_deleted == False).all()
     stream = io.StringIO()
     writer = csv.writer(stream) 
     writer.writerow(["ID Barang", "Nama Barang", "Harga", "Sisa Stock", "Deskripsi", "Link Gambar"])
@@ -93,380 +116,429 @@ def export_inventory_csv(
     return response
 
 # ========================================
-# DASHBOARD STATISTICS (AGRERASI)
+# DASHBOARD STATISTICS (AGREGASI)
 # ========================================
 @router.get("/dashboard/stats")
 def get_dashboard_statistics(
     db: Session = Depends(get_db),
-    current_user: models.UserDB = Depends(security.get_current_user)
+    current_user: models.UserDB = Depends(security.get_current_user) 
 ):
+    """Menampilkan ringkasan data inventaris (Total barang, total nilai aset, dan barang dengan stok menipis)"""
+    total_items = db.query(models.InventoryDB).filter(models.InventoryDB.is_deleted == False).count()
 
-    """Mengambil rangkuman statisics untuk layar utama (Dashboard)"""
-    total_items = db.query(func.count(models.InventoryDB.id)).scalar() or 0
-    total_physical_count = db.query(func.sum(models.InventoryDB.stock)).scalar() or 0
-    critical_stock_count = db.query(func.count(models.InventoryDB.id)).filter(models.InventoryDB.stock < 10).scalar() or 0
-    total_asset_value = db.query(func.sum(cast(models.InventoryDB.price, BigInteger) * models.InventoryDB.stock)).scalar() or 0
+    total_asset_value = db.query(
+        func.sum(models.InventoryDB.price * cast(models.InventoryDB.stock, BigInteger))
+    ).filter(models.InventoryDB.is_deleted == False).scalar() or 0
+
+    low_stock_items = db.query(models.InventoryDB).filter(
+        models.InventoryDB.is_deleted == False,
+        models.InventoryDB.stock <= 5 
+    ).all()
 
     return {
-        "status": "success",
-        "data":{
-            "total_jenis_barang": total_items,
-            "total_stock_fisik": total_physical_count,
-            "barang_stock_kritis": critical_stock_count,
-            "estimasi_nilai_aset_rp": total_asset_value
-        }
+        "summary": {
+            "total_active_items": total_items,
+            "total_asset_value_idr": total_asset_value,
+            "low_stock_alert_count": len(low_stock_items)
+        },
+        "low_stock_items": low_stock_items
     }
 
-#=======================================
-# ENDPOINT: PENCARIAN POPULER (TRENDING)
-#=======================================
+# ====================================================
+# TRENDING KEYWORD SEARCH (FITUR UNGGULAN REDIS)
+# ====================================================
 @router.get("/trending")
 def get_trending_searches():
-    """Mengambil 5 kata kunci yang paling sering dicari oleh user"""
-    trending_data = redis_client.zrevrange("trending_search", 0, 4, withscores=True)
-    result = []
-    for item in trending_data:
-        keyword, score = item
-        result.append({
-            "keyword": keyword,
-            "search_count":int(score)
-        })
-    return {"trending_data":result}
+    """Mengambil 5 kata kunci pencarian paling populer dari Redis"""
+    if not redis_client:
+        return []
+    try:
+        trending_data = redis_client.zrevrange("trending_search", 0, 4, withscores=True)
+        results = []
+        for keyword, score in trending_data:
+            results.append({
+                "keyword": keyword,
+                "search_count": int(score) 
+            })
+        return results
+    except Exception as e:
+        logger.debug(f"Redis trending search bypassed: {e}")
+        return []
 
-
-#=============================
-#         READ (GET)
-#=============================
+# ========================================
+# READ ALL & SEARCH INVENTORY (DENGAN CACHING)
+# ========================================
 @router.get("/", response_model=List[InventorySchema])
-def get_inventory(request: Request,
-                  db: Session = Depends(get_db),
-                  current_user : models.UserDB = Depends(security.get_current_user),
-                  rate_limit : None = Depends(check_rate_limit), 
-                  search: Optional[str] = "", 
-                  skip: int = 0,
-                  limit: int = 10, 
+def read_all_inventory(
+    search: Optional[str] = None,
+    min_price: Optional[int] = None, 
+    max_price: Optional[int] = None,
+    limit: int = 10,
+    skip: int = 0,
+    sort_by: Optional[str] = "id", 
+    order: Optional[str] = "asc",
+    include_deleted: bool = False,
+    db: Session = Depends(get_db),
+    request: Request = None,
+    current_user: models.UserDB = Depends(security.get_current_user)
+):
+    if request:
+        check_rate_limit(request)
 
-                  #   query parameters untuk filter 
-                  min_price: Optional[int] = None, 
-                  max_price: Optional[int] = None,
-                  min_stock: int = 0,
-                  sorted_by: Optional[str] = "id",
-                  sorted_order: Optional[str] = "asc"
-                  ):
-    
-    search_term = search.strip().lower() if search else "" 
+    cache_key = f"inventory_search:{search}:{min_price}:{max_price}:{limit}:{skip}:{sort_by}:{order}:{include_deleted}"
+
+    if redis_client:
+        try:
+            if search:
+                search_term = search.strip().lower()
+                redis_client.zincrby("trending_search", 1, search_term)
+
+            cached_data = redis_client.get(cache_key)
+            if cached_data:
+                logger.info("Serving data from Redis Cache")
+                return json.loads(cached_data)
+        except Exception as e:
+            logger.debug(f"Redis cache get bypassed: {e}")
+
+    query = db.query(models.InventoryDB)
+
+    if not include_deleted:
+        query = query.filter(models.InventoryDB.is_deleted == False)
+
     if search:
-        redis_client.zincrby("trending_search", 1, search_term)
-    
-    cache_key = f'inventory_search:{search_term}_skip:{skip}_limit:{limit}_minP:{min_price}_maxP:{max_price}_minS:{min_stock}'
-    cached_data = redis_client.get(cache_key)
-
-    if cached_data:
-        logger.info('Cache HIT for key: %s', cache_key)
-        return json.loads(cached_data)
-    logger.info("Cache MISS, querying PostgreSQL for keys %s", cache_key)
-    query = db.query(models.InventoryDB).filter(models.InventoryDB.is_deleted == False)
-
-    if search: 
         query = query.filter(models.InventoryDB.name.ilike(f"%{search}%"))
-    
+
     if min_price is not None:
         query = query.filter(models.InventoryDB.price >= min_price)
-    
+
     if max_price is not None:
         query = query.filter(models.InventoryDB.price <= max_price)
 
-    if min_stock is not None:
-        query = query.filter(models.InventoryDB.stock >= min_stock)
-    
-    if sorted_by == "price":
-        query = query.order_by(desc(models.InventoryDB.price) if sorted_order == "desc" else asc(models.InventoryDB.price))
-    elif sorted_by == "name":
-        query = query.order_by(desc(models.InventoryDB.name) if sorted_order == "desc" else asc(models.InventoryDB.name))
-    elif sorted_by == "stock":
-        query = query.order_by(desc(models.InventoryDB.stock) if sorted_order == "desc" else asc(models.InventoryDB.stock))
+    sort_column = getattr(models.InventoryDB, sort_by, models.InventoryDB.id)
+    if order.lower() == "desc":
+        query = query.order_by(desc(sort_column))
     else:
-        """default mengurutkan berdasarkan ID"""
-        query = query.order_by(desc(models.InventoryDB.id) if sorted_order == "desc" else asc(models.InventoryDB.id))
-    
-    #logika pagniaton
+        query = query.order_by(asc(sort_column))
+
     items = query.offset(skip).limit(limit).all()
-    items_dict = jsonable_encoder(items)
-    redis_client.setex(cache_key, 60, json.dumps(items_dict))
+
+    if redis_client:
+        try:
+            items_dict = jsonable_encoder(items)
+            redis_client.setex(cache_key, 60, json.dumps(items_dict))
+        except Exception as e:
+            logger.debug(f"Redis cache set bypassed: {e}")
+
     return items
 
-
-
-#=============================
-#        CREATE (POST)
-#=============================
-
+# =========================================
+# CREATE INVENTORY
+# =========================================
 @router.post("/", status_code=201)
-def create_inventory(inventory : InventorySchema, 
-                     db : Session = Depends(get_db),
-                     current_user : models.UserDB = Depends(security.get_current_user) 
-                     ):
-    cek_duplikasi = db.query(models.InventoryDB).filter(models.InventoryDB.id == inventory.id).first()
-    if cek_duplikasi:
-        raise HTTPException(status_code=400, detail="ID already registered")
-
-    new_inventory = models.InventoryDB(
-        name = inventory.name,
-        price = inventory.price,
-        stock = inventory.stock,
-        description = inventory.description,
-        owner_id = current_user.id 
+def create_inventory(
+    item: schemas.InventoryCreate, 
+    db: Session = Depends(get_db),
+    current_user: models.UserDB = Depends(security.get_current_user)
+):
+    new_item = models.InventoryDB(
+        name=item.name,
+        price=item.price,
+        stock=item.stock,
+        description=item.description,
+        owner_id=current_user.id
     )
-    logger.info('Saving new inventory item: %s', new_inventory.name)
-    db.add(new_inventory)
-    db.commit()
-    logger.info('Item successfully committed to database: %s', new_inventory.name)
-    db.refresh(new_inventory)
+    if hasattr(item, "id") and item.id is not None:
+        new_item.id = item.id
 
-    """Pencatatan Transaksi awal"""
-    new_transaction = models.TransactionDB(
-        item_id= new_inventory.id,
-        user_id= current_user.id,
-        transaction_type = "IN", 
-        quantity= new_inventory.stock,
-        notes = "Stok awal saat pendaftaran barang baru"
+    db.add(new_item)
+    db.commit()
+    db.refresh(new_item)
+
+    log_transaction(
+        db=db,
+        item_id=new_item.id,
+        user_id=current_user.id,
+        transaction_type="IN",
+        quantity=new_item.stock,
+        notes="Stok awal barang baru dibuat"
     )
-
-    db.add(new_transaction)
     db.commit()
+
+    try:
+        send_notification_email.delay(new_item.name)
+    except Exception as e:
+        logger.warning(f"Celery task send_notification_email skipped: {e}")
+
     clear_inventory_cache()
-    logger.info("Sending email notification via Celery for item: %s", new_inventory.name)
-    send_notification_email.delay(new_inventory.name)
-    return new_inventory
+    return new_item
 
-
-#=============================
-# UPDATE (PUT{id}) untuk barang aktif 
-#=============================
-
+# ==========================================
+# UPDATE INVENTORY
+# ==========================================
 @router.put("/{id}", response_model=InventorySchema)
-def update_inventory(id:int, 
-                      inventory_update: InventorySchema,
-                      db: Session= Depends(get_db),
-                      current_user: models.UserDB = Depends(security.get_current_user)
-                      ):
+def update_item(
+    id: int,
+    item_update: schemas.InventoryCreate,
+    db: Session = Depends(get_db),
+    current_user: models.UserDB = Depends(security.get_current_user)
+):
     db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
-    
-    if db_item is None:
-        raise HTTPException(status_code=404, detail="Item not Found")
-    '''mengecek kepemilika: jika ID memiliki barang BEDA dengan ID user yang login'''
-    
+
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
+
     if db_item.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail= "Not authorized to update this item")
-    
-    db_item.name = inventory_update.name
-    db_item.price = inventory_update.price
-    db_item.stock = inventory_update.stock
-    db_item.description = inventory_update.description
+        raise HTTPException(status_code=403, detail="Anda tidak berhak mengupdate barang ini")
+
+    db_item.name = item_update.name
+    db_item.price = item_update.price
+    db_item.stock = item_update.stock
+    db_item.description = item_update.description
+
     db.commit()
     db.refresh(db_item)
+
+    log_transaction(
+        db=db,
+        item_id=db_item.id,
+        user_id=current_user.id,
+        transaction_type="UPDATE",
+        quantity=db_item.stock,
+        notes="Data barang diperbarui"
+    )
+    db.commit()
+
     clear_inventory_cache()
     return db_item
 
-
-#=============================
-#           DELETE
-#=============================
-
-
+# ============================================
+# SOFT DELETE INVENTORY
+# ============================================
 @router.delete("/{id}")
-def delete_item(id: int, 
-                db: Session=Depends(get_db),
-                current_user: models.UserDB = Depends(security.get_current_user)
-                ):
-        db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
-        if db_item is None or db_item.is_deleted == True:  
-            raise HTTPException(status_code=404, detail="Item Not Found or Already deleted")
-        
-        if db_item.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail= "Not authorized to delete this item")
-
-        '''Soft delete bernilai True'''
-        db_item.is_deleted = True
-
-        new_transaction = models.TransactionDB(
-            item_id= db_item.id,
-            user_id= current_user.id,
-            transaction_type = "OUT", 
-            quantity= db_item.stock,
-            notes = "Barang dihapus (soft delete)"
-        )
-        db.add(new_transaction)
-        db.commit() 
-        clear_inventory_cache()
-        return {"message": f"Item with id {id} successfully moved to trash (Soft Deleted)"}
-
-
-# ===========================
-# RESTORE (MENGEMBALIKAN BARANG)
-# ===========================
-@router.put("/{id}/restore")
-def restore_item(
-    id: int,
-    db : Session = Depends(get_db),
-    current_user : models.UserDB = Depends(security.get_current_user)
+def delete_item(
+    id: int, 
+    db: Session = Depends(get_db), 
+    current_user: models.UserDB = Depends(security.get_current_user)
 ):
     db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
-    
-    if db_item is None:
-        raise HTTPException(status_code=404, detail="Item tidak ditemukan di database.")
-    
-    if db_item.is_deleted == False:
-        return {"message": f"Barang dengan id {id} tidak ada di tong sampah (Status masih aktif)."}
-    
+
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
+
     if db_item.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Kamu tidak berhak mengembalikan barang ini.")
-    
-    db_item.is_deleted = False
+        raise HTTPException(status_code=403, detail="Anda tidak berhak menghapus barang ini")
+
+    if db_item.is_deleted:
+        raise HTTPException(status_code=400, detail="Barang ini sudah dihapus sebelumnya")
+
+    db_item.is_deleted = True 
     db.commit()
+
+    log_transaction(
+        db=db,
+        item_id=db_item.id,
+        user_id=current_user.id,
+        transaction_type="OUT",
+        quantity=db_item.stock,
+        notes="Barang dihapus (soft delete)"
+    )
+    db.commit()
+
     clear_inventory_cache()
-    return {"message": f"Item with id {id} succesfully restored from trash!"}
+    return {"message": f"Barang {db_item.name} berhasil dinonaktifkan (Soft Delete)"}
 
+# =============================================
+# RESTORE INVENTORY
+# =============================================
+@router.put("/{id}/restore")
+def restore_item(
+    id: int, 
+    db: Session = Depends(get_db), 
+    current_user: models.UserDB = Depends(security.get_current_user)
+):
+    db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
 
-#===========================
-#   UPLOAD GAMBAR BARANG
-#===========================
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
+
+    if db_item.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Anda tidak berhak memulihkan barang ini")
+
+    if not db_item.is_deleted:
+        raise HTTPException(status_code=400, detail="Barang ini aktif, tidak perlu di-restore")
+
+    db_item.is_deleted = False 
+    db.commit()
+
+    log_transaction(
+        db=db,
+        item_id=db_item.id,
+        user_id=current_user.id,
+        transaction_type="IN",
+        quantity=db_item.stock,
+        notes="Barang dipulihkan (restore)"
+    )
+    db.commit()
+
+    clear_inventory_cache()
+    return {"message": f"Barang {db_item.name} berhasil dipulihkan"}
+
+# =============================================
+# UPLOAD IMAGE
+# =============================================
 @router.post("/{id}/image")
 def upload_item_image(
     id: int,
-    file: UploadFile = File(...), 
-    db: Session = Depends(get_db),
-    current_user: models.UserDB = Depends(security.get_current_user)
-): 
-    """Mengunggah file gambar (JPG/PNG) untuk barang tertentu."""
-    db_item = (db.query(models.InventoryDB)
-               .filter(models.InventoryDB.id == id, models.InventoryDB.is_deleted == False)
-               .first())
-    
-    if not db_item:
-        raise HTTPException(status_code= 404, detail="Item not found")
-    
-    if db_item.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Tidak berhak mengubah gambar barang ini")
-    
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail='File must be an image!')
-    
-    file_extention = file.filename.split(".")[-1]
-    unique_filename = f"item_{id}_{uuid.uuid4().hex[:8]}.{file_extention}"
-    file_location = f'static/images/{unique_filename}'
-
-    with open(file_location, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    db_item.image_url = f"/{file_location}"
-    db.commit()
-    clear_inventory_cache()
-
-    return{
-        "message": "Gambar berhasil diunggah",
-        "filename": unique_filename,
-        "image_url": db_item.image_url
-    }
-
-# ==============================
-# PUT UNTUK UPDATE STOCK / {item_id}
-# ==============================
-
-@router.put("/{item_id}/stock")
-def update_stock(
-    item_id: int, 
-    payload: StockUpdateRequest,
-    db: Session = Depends(get_db),
-    current_user : models.UserDB = Depends(security.get_current_user)
-    ): 
-
-    change_amount = payload.change_amount
-    item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).with_for_update().first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
-    
-    if item.stock + change_amount < 0:
-        raise HTTPException(status_code=400, detail="Transaksi gagal: Stock tidak mencukupi (Minus)!")
-    
-    item.stock += change_amount
-    db.commit()
-    log_type = LogType.IN.value if change_amount > 0 else LogType.OUT.value
-
-    record_stock_log.delay(item_id=item.id, 
-                           change_amount=change_amount, 
-                           log_type=log_type, 
-                           user_id=current_user.id)
-    clear_inventory_cache()
-    
-    return {"message": "Stok berhasil diupdate!", "current_stock": item.stock}
-
-
-
-# ===========================
-# GET{item_id} untuk riwayat keluar masuk barang 
-# ===========================
-@router.get("/{item_id}/logs", response_model=List[schemas.StockLogResponse])
-def get_item_stock_logs(
-    item_id: int, 
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: models.UserDB = Depends(security.get_current_user)
 ):
-    """Melihat riwayat keluar-masuk stok untuk satu barang spesifik."""
+    ALLOWED_EXTENSIONS = {"image/jpeg", "image/png", "image/jpg"}
+    if file.content_type not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Hanya format gambar (JPEG/JPG/PNG) yang diperbolehkan!"
+        )
 
-    item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).first()
-    if not item:
+    db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
+    if not db_item:
         raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
-    
-    logs = db.query(models.StockLog)\
-             .filter(models.StockLog.item_id == item_id)\
-             .order_by(models.StockLog.created_at.desc())\
-             .all()
-             
-    return logs
 
+    if db_item.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Anda tidak berhak mengubah gambar barang ini")
+
+    file_extension = file.filename.split(".")[-1]
+    unique_filename = f"item_{id}_{uuid.uuid4().hex[:8]}.{file_extension}"
+    file_location = f"static/images/{unique_filename}"
+
+    with open(file_location, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    db_item.image_url = f"/static/images/{unique_filename}"
+    db.commit()
+    db.refresh(db_item)
+
+    clear_inventory_cache()
+    return {
+        "message": "Gambar barang berhasil diunggah",
+        "image_url": db_item.image_url
+    }
+
+# =============================================
+# UPDATE / ADJUST STOCK
+# =============================================
+@router.put("/{item_id}/stock")
+def update_stock(
+    item_id: int,
+    payload: schemas.StockUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: models.UserDB = Depends(security.get_current_user)
+):
+    db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
+
+    if db_item.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Anda tidak berhak mengubah stok barang ini")
+
+    old_stock = db_item.stock
+    new_stock = payload.new_stock
+    difference = new_stock - old_stock
+
+    if difference == 0:
+        return {"message": "Stok tidak mengalami perubahan", "current_stock": db_item.stock}
+
+    db_item.stock = new_stock
+    db.commit()
+    db.refresh(db_item)
+
+    log_type = "IN" if difference > 0 else "OUT"
+    log_transaction(
+        db=db,
+        item_id=db_item.id,
+        user_id=current_user.id,
+        transaction_type=log_type,
+        quantity=abs(difference),
+        notes=payload.notes or f"Update manual stok dari {old_stock} menjadi {new_stock}"
+    )
+    db.commit()
+
+    try:
+        record_stock_log.delay(
+            item_id=item_id,
+            change_amount=abs(difference),
+            log_type=log_type,
+            user_id=current_user.id
+        )
+    except Exception as e:
+        logger.warning(f"Celery task record_stock_log skipped: {e}")
+
+    clear_inventory_cache()
+    return {
+        "message": "Stok berhasil diperbarui",
+        "item_id": item_id,
+        "old_stock": old_stock,
+        "new_stock": new_stock
+    }
 
 @router.patch("/{id}/stock")
 def adjust_stock(
     id: int,
-    payload: StockAdjustRequest,
+    payload: schemas.StockAdjustRequest,
     db: Session = Depends(get_db),
     current_user: models.UserDB = Depends(security.get_current_user)
 ):
-    amount = payload.amount
-    notes = payload.notes
-    
-    db_item = db.query(models.InventoryDB)\
-    .filter(models.InventoryDB.id == id, models.InventoryDB.is_deleted == False)\
-            .with_for_update().first()
-    
-    
+    db_item = db.query(models.InventoryDB).filter(models.InventoryDB.id == id).first()
     if not db_item:
-        raise HTTPException(status_code=404, detail="Barang tidak ditemukan atau sudah dihapus")
-    
-    if payload.amount < 0 and db_item.stock + payload.amount < 0:
-        raise HTTPException(status_code=400,
-                            detail = f'Stock tidak mencukupi! Sista stock saat ini hanya {db_item.stock}.')
-    db_item.stock += payload.amount
+        raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
 
-    if payload.amount != 0:
-        log_type = LogType.IN.value if payload.amount > 0 else LogType.OUT.value
+    if db_item.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Anda tidak berhak mengubah stok barang ini")
 
-        new_transaction = models.TransactionDB(
-            item_id=db_item.id,
-            user_id = current_user.id,
-            transaction_type = log_type,
-            quantity=abs(payload.amount),
-            notes=notes
-        )
-        db.add(new_transaction)
+    old_stock = db_item.stock
+    amount = payload.amount
+    log_type = payload.type.upper()
+
+    if log_type == "IN":
+        new_stock = old_stock + amount
+    elif log_type == "OUT":
+        if old_stock < amount:
+            raise HTTPException(status_code=400, detail="Stok tidak mencukupi untuk pengurangan ini")
+        new_stock = old_stock - amount
+    else:
+        raise HTTPException(status_code=400, detail="Tipe mutasi tidak valid. Harus IN atau OUT")
+
+    db_item.stock = new_stock
     db.commit()
-    clear_inventory_cache()
+    db.refresh(db_item)
 
-    return{
-        "message": "Stock berhasil diupdate!",
-        "item_name": db_item.name,
-        "current_stock": db_item.stock,
-        "transaction_logged": True if amount != 0 else False
+    log_transaction(
+        db=db,
+        item_id=db_item.id,
+        user_id=current_user.id,
+        transaction_type=log_type,
+        quantity=amount,
+        notes=payload.notes or f"Penyesuaian stok ({log_type})"
+    )
+    db.commit()
+
+    clear_inventory_cache()
+    return {
+        "message": f"Stok berhasil di-adjust ({log_type})",
+        "item_id": id,
+        "old_stock": old_stock,
+        "new_stock": new_stock
     }
-    
+
+@router.get("/{item_id}/logs", response_model=List[schemas.StockLogResponse])
+def get_stock_logs(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.UserDB = Depends(security.get_current_user)
+):
+    item = db.query(models.InventoryDB).filter(models.InventoryDB.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
+
+    logs = db.query(models.StockLog).filter(models.StockLog.item_id == item_id).order_by(models.StockLog.created_at.desc()).all()
+    return logs

@@ -2,20 +2,26 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import List, Optional
 from datetime import datetime
 
-class InventorySchema(BaseModel):
-    id : int = Field(..., ge=1) 
-    name : str = Field(..., min_length=3, max_length=100)
-    price : int = Field(..., ge=0)
-    stock : int = Field(..., ge=0)
-    description : Optional[str] = Field(None, max_length=1000)
-    image_url : Optional[str] = None
-    model_config = ConfigDict(from_attributes=True) 
+class InventoryBase(BaseModel):
+    name: str = Field(..., min_length=3, max_length=100)
+    price: int = Field(..., ge=0)
+    stock: int = Field(..., ge=0)
+    description: Optional[str] = Field(None, max_length=1000)
+    image_url: Optional[str] = None
 
+class InventoryCreate(InventoryBase):
+    id: Optional[int] = None
+
+class InventorySchema(InventoryBase):
+    id: int = Field(..., ge=1)
+    owner_id: Optional[int] = None
+    is_deleted: Optional[bool] = False
+    model_config = ConfigDict(from_attributes=True)
 
 # ---- USER -----
 class UserSchema(BaseModel):
-    username: str
-    password: str 
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=3, max_length=100)
     model_config = ConfigDict(from_attributes=True)
 
 # ---- LOGIN ----
@@ -27,24 +33,21 @@ class LoginSchema(BaseModel):
 # ---- Untuk Mengirim Data Riwayat ----
 class StockLogResponse(BaseModel):
     id: int
-    item_id : int
+    item_id: int
     change_amount: int
-    log_type : str
-    user_id : Optional[int]=None
+    log_type: str
+    user_id: Optional[int] = None
+    created_at: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
 
 class StockUpdateRequest(BaseModel):
-    change_amount: int
-    @field_validator("change_amount")
-    @classmethod
-    def amount_tidak_boleh_nol(cls, v):
-        if v == 0:
-            raise ValueError("change_amount tidak boleh 0")
-        return v
+    new_stock: int
+    notes: Optional[str] = None
 
 class StockAdjustRequest(BaseModel):
     amount: int
-    notes: str = "Penyesuaian stock dari sistem kasir"
+    type: str = "IN"
+    notes: Optional[str] = None
 
 """Schemas untuk Transaksi"""
 class TransactionBase(BaseModel):
@@ -61,6 +64,3 @@ class TransactionResponse(TransactionBase):
     user_id: int
     timestamp: datetime
     model_config = ConfigDict(from_attributes=True)
-
-
-
