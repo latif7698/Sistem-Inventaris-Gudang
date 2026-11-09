@@ -19,3 +19,8 @@ postgres_data/
 
 ## OS generated files 
 .DS_Store
+
+# Local architecture notes
+arsitek.md
+timebuild.md
+unittest.md
