@@ -35,7 +35,7 @@ def register_user(user: UserSchema, db: Session = Depends(get_db)):
     logger.info(f"Mencoba menyimpan user: {new_user.username}")
     db.add(new_user)
     db.commit()
-    print("Data berhasil di-commit ke database!")
+    logger.info("Data berhasil di-commit ke database!")
     db.refresh(new_user)
 
     return {"message": "User created succesfully", "username": new_user.username}
